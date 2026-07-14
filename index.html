@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -2519,5 +2519,43 @@ stockAlerts=function(){
   if(!(isAdmin()||currentUser?.role==='Encargado Stock'||canDo('stockMove')))return stockViewBox.innerHTML='<div class="notice">Los avisos de bajo stock los gestiona el encargado de stock.</div>';
   let low=stockLowRows(),crit=low.filter(i=>i.qty<=i.min);
   stockViewBox.innerHTML=`<div class="grid"><div class="card"><span class="muted">Avisos para encargado de stock</span><div class="metric">${low.length}</div></div><div class="card"><span class="muted">Stock critico</span><div class="metric">${crit.length}</div></div></div><div class="panel"><h2>Reposicion pendiente</h2>${low.map(i=>`<div class="listitem"><div><b>${i.qty<=i.min?'CRITICO':'Bajo stock ideal'} - ${i.part}</b><div class="muted">${i.loc} - Actual ${i.qty} / Ideal ${i.ideal} - Reponer ${Math.max(0,i.ideal-i.qty)}</div></div><button class="gold" onclick="stockEntryForm('${stockItemIndex(i)}')">Reponer</button></div>`).join('')||'<div class="notice">No hay articulos bajo ideal.</div>'}</div><div class="panel"><h2>Lista de compra / reposicion sugerida</h2><table><tr><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Actual</th><th>Ideal</th><th>Reponer</th></tr>${low.map(i=>`<tr><td><b>${i.code}</b></td><td>${i.part}</td><td>${i.loc}</td><td>${i.qty}</td><td>${i.ideal}</td><td><b>${Math.max(0,i.ideal-i.qty)}</b></td></tr>`).join('')||'<tr><td colspan="6">Sin avisos.</td></tr>'}</table></div>`;
+}
+function isCentralStockUser(){
+  return !!currentUser&&(currentUser.role==='Encargado Stock'||currentUser.id==='stock_deposito');
+}
+const baseAllowedLocationsForCentralStock=allowedLocations;
+allowedLocations=function(c=company){
+  if(isCentralStockUser())return (locations[c]||locations['Phelox Ltda']||[]).slice();
+  return baseAllowedLocationsForCentralStock(c);
+}
+const baseCanAccessLocForCentralStock=canAccessLoc;
+canAccessLoc=function(loc,c=company){
+  if(isCentralStockUser())return true;
+  return baseCanAccessLocForCentralStock(loc,c);
+}
+visibleStock=function(){
+  return isCentralStockUser()?stock.slice():stock.filter(i=>canAccessLoc(i.loc));
+}
+function enterCentralStock(){
+  company='Phelox Ltda';
+  pheloxArea='Taller';
+  companies.classList.add('hidden');
+  app.classList.remove('hidden');
+  mainMenu.classList.add('hidden');
+  module.classList.remove('hidden');
+  companyTitle.textContent='Stock central - todas las ubicaciones';
+  headerLogo.innerHTML=`<img src="${logos['Phelox Ltda']}">`;
+  stockView();
+}
+const baseLoginForCentralStock=login;
+login=function(){
+  let u=users.find(x=>x.id===loginUser.value&&x.pass===loginPass.value);
+  if(!u)return alert('Usuario o clave invalidos');
+  currentUser=normalizeUser(u);
+  document.getElementById('login').classList.add('hidden');
+  renderSession();
+  if(isCentralStockUser())enterCentralStock();
+  else{renderCompanyScreen();companies.classList.remove('hidden')}
+  setTimeout(()=>showUserMessages(false),150);
 }
 </script></body></html>
