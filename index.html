@@ -2209,7 +2209,7 @@ function canCreateStockOrder(){return canDo('stockView')||canDo('stockEntry')||c
 function normalizeStockOrders(){stockRequests.forEach(r=>{if(!r.kind)r.kind='Pedido';if(!Array.isArray(r.items))r.items=orderItems(r);if(r.status==='Aprobada')r.status='Aprobado';if(r.status==='Rechazada')r.status='Rechazado';r.items.forEach(i=>{i.qty=parseFloat(i.qty||0);i.delivered=parseFloat(i.delivered||0)})})}
 normalizeStockOrders();
 function notifyUser(toName,title,body,type='Pedido',status='Pendiente'){appMessages=appMessages||[];appMessages.unshift({id:'MSG'+Date.now()+Math.floor(Math.random()*999),date:now(),toName,toUser:'',from:activeUserName(),fromUser:currentUser?.id,type,title,body,status,read:false})}
-function stockView(){let actions=`${isAdmin()?`<button class="ghost" onclick="leaveIfSaved(newStockItemForm)">${icon('plus')} Nuevo articulo</button>`:''} ${canDo('stockEntry')?`<button class="gold" onclick="leaveIfSaved(stockEntryForm)">${icon('in')} Ingresar</button>`:''} ${canDo('stockConsume')?`<button class="primary" onclick="leaveIfSaved(stockConsumeForm)">${icon('out')} Consumir</button>`:''} ${canDo('stockMove')?`<button class="ghost" onclick="leaveIfSaved(stockMoveForm)">${icon('move')} Mover ubicacion</button>`:''} ${canCreateStockOrder()?`<button class="primary" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button>`:''}`;content.innerHTML=`<div class="panel"><div class="top"><div><h2>Stock</h2><span class="muted">Control de articulos, pedidos, movimientos y compras sugeridas</span></div><div>${actions}</div></div><div class="tabs"><button class="primary" onclick="leaveIfSaved(stockArticles)">${icon('box')} Articulos</button><button class="ghost" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button><button class="ghost" onclick="leaveIfSaved(stockAlerts)">${icon('history')} Mensajes / avisos</button><button class="ghost" onclick="leaveIfSaved(stockConsumptions)">${icon('out')} Consumos</button><button class="ghost" onclick="leaveIfSaved(stockEntries)">${icon('in')} Ingresos</button><button class="ghost" onclick="leaveIfSaved(stockMoves)">${icon('move')} Movimientos</button><button class="ghost" onclick="leaveIfSaved(stockProductHistory)">${icon('history')} Historial por producto</button></div><div id="stockViewBox"></div></div>`;stockArticles()}
+function stockView(){let actions=`${(isAdmin()||isCentralStockUser())?`<button class="ghost" onclick="leaveIfSaved(newStockItemForm)">${icon('plus')} Nuevo articulo</button>`:''} ${canDo('stockEntry')?`<button class="gold" onclick="leaveIfSaved(stockEntryForm)">${icon('in')} Ingresar</button>`:''} ${canDo('stockConsume')?`<button class="primary" onclick="leaveIfSaved(stockConsumeForm)">${icon('out')} Consumir</button>`:''} ${canDo('stockMove')?`<button class="ghost" onclick="leaveIfSaved(stockMoveForm)">${icon('move')} Mover ubicacion</button>`:''} ${canCreateStockOrder()?`<button class="primary" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button>`:''}`;content.innerHTML=`<div class="panel"><div class="top"><div><h2>Stock</h2><span class="muted">Control de articulos, pedidos, movimientos y compras sugeridas</span></div><div>${actions}</div></div><div class="tabs"><button class="primary" onclick="leaveIfSaved(stockArticles)">${icon('box')} Articulos</button><button class="ghost" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button><button class="ghost" onclick="leaveIfSaved(stockAlerts)">${icon('history')} Mensajes / avisos</button><button class="ghost" onclick="leaveIfSaved(stockConsumptions)">${icon('out')} Consumos</button><button class="ghost" onclick="leaveIfSaved(stockEntries)">${icon('in')} Ingresos</button><button class="ghost" onclick="leaveIfSaved(stockMoves)">${icon('move')} Movimientos</button><button class="ghost" onclick="leaveIfSaved(stockProductHistory)">${icon('history')} Historial por producto</button></div><div id="stockViewBox"></div></div>`;stockArticles()}
 function visibleStockRequests(){normalizeStockOrders();return stockRequests.filter(r=>isAdmin()||r.user===activeUserName()||canAccessLoc(r.toLoc,r.company)||canAccessLoc(r.fromLoc,r.company))}
 function stockRequestsView(){if(!canCreateStockOrder())return alert('Tu usuario no tiene permiso para trabajar con pedidos de stock');let f=document.getElementById('orderStatusFilter')?.value||'Todos',q=norm(document.getElementById('orderSearch')?.value||''),rows=visibleStockRequests();if(f!=='Todos')rows=rows.filter(r=>(r.status||'Pendiente')===f);if(q)rows=rows.filter(r=>norm(`${r.id} ${r.company} ${r.user} ${r.fromLoc} ${r.toLoc} ${orderItems(r).map(i=>`${i.code} ${i.part} ${i.note}`).join(' ')} ${r.note||''}`).includes(q));let counts=['Pendiente','Aprobado','Parcial','Despachado','Rechazado'].map(s=>`${s}: ${visibleStockRequests().filter(r=>(r.status||'Pendiente')===s).length}`).join(' / ');stockViewBox.innerHTML=`<div class="panel"><div class="top"><div><h2>Pedidos</h2><span class="muted">${counts}</span></div><button class="primary" onclick="newStockRequestForm()">${icon('plus')} Nuevo pedido</button></div><div class="form"><select id="orderStatusFilter" onchange="stockRequestsView()"><option ${f==='Todos'?'selected':''}>Todos</option><option ${f==='Pendiente'?'selected':''}>Pendiente</option><option ${f==='Aprobado'?'selected':''}>Aprobado</option><option ${f==='Parcial'?'selected':''}>Parcial</option><option ${f==='Despachado'?'selected':''}>Despachado</option><option ${f==='Rechazado'?'selected':''}>Rechazado</option></select><input id="orderSearch" value="${val(document.getElementById('orderSearch')?.value||'')}" oninput="stockRequestsView()" placeholder="Buscar pedido, usuario, codigo o articulo..."></div><table><tr><th>Fecha</th><th>Pedido</th><th>Solicita</th><th>Para</th><th>Articulos</th><th>Estado</th><th></th></tr>${rows.map(r=>`<tr><td>${r.date}</td><td><b>${r.id}</b><div class="muted">${r.company}</div></td><td><b>${r.user||'-'}</b><div class="muted">${r.fromLoc||'-'}</div></td><td><b>${r.toLoc||'-'}</b><div class="muted">${r.from||r.requestTo||'Stock central'}</div></td><td>${orderQtyText(r)}${r.note?`<div class="muted">Comentario: ${r.note}</div>`:''}</td><td>${orderStatusBadge(r)}</td><td><button class="ghost" onclick="openStockOrder('${r.id}')">${icon('eye')} Ver</button>${orderCanManage(r)&&['Pendiente'].includes(r.status||'Pendiente')?` <button class="primary" onclick="approveStockRequest('${r.id}')">Aprobar</button> <button class="red" onclick="rejectStockRequest('${r.id}')">Rechazar</button>`:''}${orderCanManage(r)&&['Aprobado','Parcial'].includes(r.status||'')?` <button class="gold" onclick="dispatchStockOrderForm('${r.id}')">Despachar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7">Sin pedidos para ese filtro.</td></tr>'}</table></div>`;clearChanges()}
 function newStockRequestForm(){if(!canCreateStockOrder())return alert('Tu usuario no tiene permiso para crear pedidos');stockOrderCart=[];let comp=company||'Phelox Ltda';stockViewBox.innerHTML=`<div class="panel"><div class="top"><h2>Nuevo pedido</h2><button class="ghost" onclick="leaveIfSaved(stockRequestsView)">Volver</button></div><div class="form"><label>Empresa<select id="srCompany" onchange="renderStockRequestLocations();renderStockRequestOptions()"><option ${comp.includes('Avion')?'':'selected'}>Phelox Ltda</option><option ${comp.includes('Avion')?'selected':''}>Transportes El Avion</option></select></label>${userSelect('srUser')}<div id="srLocBox" class="wide"></div><input id="srFrom" value="Stock central" placeholder="A quien se solicita, ej: deposito, compras, taller central"><textarea id="srNote" class="wide" placeholder="Comentario general del pedido"></textarea></div></div><div class="panel"><h3>Agregar articulos al pedido</h3><div class="form"><label>Tipo<select id="srMode" onchange="toggleStockRequestItemMode()"><option value="stock">Articulo existente en stock</option><option value="new">Articulo nuevo / no cargado</option></select></label><input id="srSearch" placeholder="Buscar por codigo, nombre, marca o modelo" oninput="renderStockRequestOptions()"><select id="srItem"></select><input id="srNewPart" style="display:none" placeholder="Nombre del articulo nuevo"><input id="srQty" type="number" min="1" value="1" placeholder="Cantidad"><input id="srItemNote" placeholder="Comentario del articulo"><button class="primary" onclick="addStockOrderCartItem()">Agregar al pedido</button></div><div id="stockOrderCartBox"></div><button class="gold wide" onclick="saveStockRequest()">Enviar pedido</button></div>`;renderStockRequestLocations();renderStockRequestOptions();toggleStockRequestItemMode();renderStockOrderCart();trackChanges()}
@@ -2697,6 +2697,28 @@ companyLocations=function(c=company){
 locationOptions=function(selected=''){
   return optionsFrom(companyLocations(),selected);
 }
+function canSeeProductMovement(m){
+  if(isAdmin()||isCentralStockUser())return true;
+  let locs=[m.loc,m.fromLoc,m.toLoc].filter(Boolean);
+  if(!locs.length)return false;
+  return locs.some(l=>canAccessLoc(l,m.company||company));
+}
+function visibleStockMovement(m){
+  return isAdmin()||isCentralStockUser()||canSeeProductMovement(m);
+}
+productHistoryRows=function(code,filter='todo'){
+  let rows=moves.filter(m=>m.code===code&&canSeeProductMovement(m));
+  if(filter==='ingresos')rows=rows.filter(m=>m.action==='Ingreso');
+  if(filter==='consumos')rows=rows.filter(m=>m.action==='Consumo');
+  if(filter==='movimientos')rows=rows.filter(m=>m.action==='Movimiento'||m.action==='Mover'||m.fromLoc);
+  if(filter==='solicitudes')rows=rows.filter(m=>String(m.action||'').includes('Solicitud'));
+  return rows;
+}
+const baseRenderStockProductHistoryListScoped=renderStockProductHistoryList;
+renderStockProductHistoryList=function(){
+  let q=norm(histProductSearch?.value||''),codes=[...new Set(visibleStock().map(i=>i.code))],rows=codes.map(code=>({code,item:stock.find(i=>i.code===code),summary:productStockSummary(code),count:productHistoryRows(code).length})).filter(x=>!q||norm(`${x.code} ${x.item?.part||''} ${x.item?.brand||''} ${x.item?.model||''} ${x.summary.locs}`).includes(q));
+  histProductList.innerHTML=`<table><tr><th>Codigo</th><th>Producto</th><th>Ubicaciones / stock</th><th>Movimientos</th><th></th></tr>${rows.map(x=>`<tr><td><b>${x.code}</b></td><td>${x.item?.part||''}<div class="muted">${x.item?.brand||''} ${x.item?.model||''}</div></td><td>${x.summary.locs||'Sin stock actual'}</td><td>${x.count}</td><td><button class="primary" onclick="openStockProductHistory('${x.code}')">Ver historial</button></td></tr>`).join('')||'<tr><td colspan="5">Sin productos para esa busqueda</td></tr>'}</table>`;
+}
 const baseRenderStockArticlesForColors=renderStockArticles;
 renderStockArticles=function(){
   baseRenderStockArticlesForColors();
@@ -2712,8 +2734,149 @@ renderStockArticles=function(){
   });
 }
 renderStockEntriesList=function(){
-  let rows=moves.filter(m=>m.action==='Ingreso'),q=norm(document.getElementById('entrySearch')?.value||'');
+  let rows=moves.filter(m=>m.action==='Ingreso'&&visibleStockMovement(m)),q=norm(document.getElementById('entrySearch')?.value||'');
   if(q)rows=rows.filter(m=>norm(`${m.code} ${itemName(m.code)} ${m.loc||''} ${m.user||''} ${m.desc||''}`).includes(q));
   entryListBox.innerHTML=`<table><tr><th>Editar</th><th>Fecha</th><th>Usuario</th><th>Codigo</th><th>Repuesto</th><th>Cantidad</th><th>Ideal</th><th>Precio unit.</th><th>Moneda</th><th>Total</th><th>Ubicacion</th><th>Descripcion</th></tr>${rows.map(m=>{let item=stock.find(i=>i.code===m.code),idx=stockItemIndex(item),cur=m.currency||item?.currency||'UYU',unit=parseFloat(m.price??item?.price??0),total=movementCostText(m),cls=entryStockRowClass(m);return `<tr class="${cls}"><td><button class="ghost" title="Editar articulo" onclick="editStockItemForm('${idx>=0?idx:m.code}')">${icon('edit')}</button></td><td>${m.date}</td><td>${m.user}</td><td><b>${m.code}</b></td><td>${itemName(m.code)}</td><td>+${m.qty}</td><td>${entryStockIdeal(m)}</td><td class="money">${unit?moneyCurrency(unit,cur):'-'}</td><td>${cur}</td><td class="money">${total}</td><td>${m.loc}</td><td>${m.desc||''}</td></tr>`}).join('')||'<tr><td colspan="12">No hay ingresos para esa busqueda.</td></tr>'}</table>`;
 }
+stockConsumptions=function(){
+  let rows=moves.filter(m=>m.action==='Consumo'&&visibleStockMovement(m));
+  stockViewBox.innerHTML=`<h2>Lista de consumos</h2><table><tr><th>Fecha</th><th>Usuario</th><th>Repuesto</th><th>Vehiculo</th><th>Cantidad</th><th>Costo</th><th>Ubicacion</th><th>Descripcion</th></tr>${rows.map(m=>`<tr><td>${m.date}</td><td>${m.user}</td><td>${itemName(m.code)}</td><td>${m.vehicle||'-'}</td><td>-${m.qty}</td><td class="money">${movementCostText(m)}</td><td>${m.loc||'-'}</td><td>${m.desc||''}</td></tr>`).join('')||'<tr><td colspan="8">No hay consumos para tus ubicaciones.</td></tr>'}</table>`;
+}
+stockMoves=function(){
+  let rows=moves.filter(m=>(m.action==='Movimiento'||m.action==='Mover'||m.fromLoc)&&visibleStockMovement(m));
+  stockViewBox.innerHTML=`<div class="top"><h2>Movimientos de ubicacion</h2><button class="ghost" onclick="stockMoveForm()">Nuevo movimiento</button></div><table><tr><th>Fecha</th><th>Usuario</th><th>Repuesto</th><th>Cantidad</th><th>Costo</th><th>Desde</th><th>Hacia</th><th>Descripcion</th></tr>${rows.map(m=>`<tr><td>${m.date}</td><td>${m.user}</td><td>${itemName(m.code)}</td><td>${m.qty}</td><td class="money">${movementCostText(m)}</td><td>${m.fromLoc||'-'}</td><td>${m.loc||m.toLoc||'-'}</td><td>${m.desc||''}</td></tr>`).join('')||'<tr><td colspan="8">No hay movimientos para tus ubicaciones.</td></tr>'}</table>`;
+}
+function stockScopeTitle(){
+  if(isCentralStockUser())return 'Stock central';
+  if(isAdmin())return 'Stock administrador';
+  if(isLocationAdmin())return 'Stock del frente / ubicacion';
+  return 'Stock de mi ubicacion';
+}
+function stockScopeDetail(){
+  let loc=document.getElementById('locFilter')?.value||'';
+  let locs=companyLocations();
+  if(loc)return `Navegando solo en: ${loc}`;
+  if(isCentralStockUser())return `Viendo todas las ubicaciones habilitadas: ${locs.join(' / ')}`;
+  return `Ubicaciones habilitadas: ${locs.join(' / ')||'Sin ubicaciones'}`;
+}
+function stockScopeBanner(){
+  return `<div id="stockScopeBanner" class="notice" style="margin:0 0 12px 0"><b>${stockScopeTitle()}</b><div class="muted">${stockScopeDetail()}</div></div>`;
+}
+function refreshStockScopeBanner(){
+  let box=document.getElementById('stockScopeBanner');
+  if(box)box.innerHTML=`<b>${stockScopeTitle()}</b><div class="muted">${stockScopeDetail()}</div>`;
+}
+const baseStockArticlesScope=stockArticles;
+stockArticles=function(){
+  stockViewBox.innerHTML=`${stockScopeBanner()}<div class="form"><select id="locFilter" onchange="renderStockArticles()"><option value="">Todas las ubicaciones</option>${locationOptions()}</select><select id="typeFilter" onchange="renderStockArticles()"><option value="">Todos los tipos</option>${[...new Set(stock.map(s=>s.type).filter(Boolean))].sort().map(t=>`<option>${t}</option>`).join('')}</select><input id="compatFilter" oninput="renderStockArticles()" placeholder="Marca o modelo, ej: Toyota Hilux"><input id="searchStock" oninput="renderStockArticles()" placeholder="Buscar codigo o repuesto..."></div><div id="stockTable"></div>`;
+  renderStockArticles();
+}
+const baseRenderStockArticlesScope=renderStockArticles;
+renderStockArticles=function(){
+  refreshStockScopeBanner();
+  return baseRenderStockArticlesScope();
+}
+function productIdealRows(code){
+  let rows=visibleStock().filter(i=>i.code===code);
+  if(!rows.length)rows=stock.filter(i=>i.code===code&&canAccessLoc(i.loc));
+  return rows.sort((a,b)=>String(a.loc).localeCompare(String(b.loc)));
+}
+function editProductIdeals(code){
+  let rows=productIdealRows(code),sample=rows[0]||stock.find(i=>i.code===code);
+  if(!sample)return alert('No encontre el articulo');
+  stockViewBox.innerHTML=`<button class="ghost" onclick="stockArticles()">< Volver</button><div class="panel"><div class="top"><div><h2>Stock ideal por ubicacion</h2><span class="muted">${sample.code} - ${sample.part}</span></div></div><div class="notice">Cada ubicacion puede tener su propio ideal y minimo. Los avisos se calculan con el ideal de esa ubicacion, no con el total general.</div><table><tr><th>Ubicacion</th><th>Actual</th><th>Ideal</th><th>Minimo / critico</th><th>Reponer</th></tr>${rows.map((i,n)=>`<tr><td><b>${i.loc}</b></td><td>${i.qty}</td><td><input id="idealLoc${n}" type="number" min="0" value="${i.ideal||0}" oninput="markDirty()"></td><td><input id="minLoc${n}" type="number" min="0" value="${i.min||0}" oninput="markDirty()"></td><td>${Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0))}</td></tr>`).join('')||'<tr><td colspan="5">Sin ubicaciones visibles para este articulo.</td></tr>'}</table><button class="primary wide" onclick="saveProductIdeals('${code}')">Guardar ideales por ubicacion</button></div>`;
+  window.__idealRows=rows;
+  trackChanges();
+}
+function saveProductIdeals(code){
+  let rows=window.__idealRows||productIdealRows(code),miss=[];
+  rows.forEach((i,n)=>{let ideal=parseFloat(document.getElementById('idealLoc'+n)?.value||0),min=parseFloat(document.getElementById('minLoc'+n)?.value||0);if(ideal<0||min<0)miss.push(i.loc);});
+  if(miss.length)return missing(['Ideales y minimos no negativos']);
+  return confirmStockSave(`Desea guardar los ideales por ubicacion de <b>${code}</b>?`,()=>{
+    rows.forEach((i,n)=>{i.ideal=parseFloat(document.getElementById('idealLoc'+n)?.value||0);i.min=parseFloat(document.getElementById('minLoc'+n)?.value||0);});
+    moves.unshift({code,date:now(),user:activeUserName()||'Administrador',action:'Ideal stock',vehicle:'-',qty:0,loc:'-',desc:'Actualizacion de stock ideal por ubicacion'});
+    ensureStockLowMessagesByItem();
+    saveData();clearChanges();success('Ideales por ubicacion guardados.');stockArticles();
+  });
+}
+const renderStockArticlesWithIdealButton=renderStockArticles;
+renderStockArticles=function(){
+  renderStockArticlesWithIdealButton();
+  document.querySelectorAll('#stockTable tbody tr').forEach(row=>{
+    let code=(row.querySelector('td:nth-child(3)')?.textContent||'').trim();
+    let actions=row.querySelector('td:last-child');
+    if(code&&actions&&!actions.innerHTML.includes('editProductIdeals'))actions.innerHTML+=` <button class="ghost" onclick="editProductIdeals('${code}')">${icon('settings')} Ideales</button>`;
+  });
+}
+function lowStockIgnoredKey(key,userId=currentUser?.id||''){
+  return 'IGNORED-STOCK-'+userId+'-'+key;
+}
+function isStockLowIgnoredForUser(key,userId){
+  return (appMessages||[]).some(m=>m.id===lowStockIgnoredKey(key,userId)&&m.status==='Ignorado');
+}
+function frontManagersForStockItem(i){
+  return users.filter(u=>normalizeRoleName(u.role)==='Encargado Frente'&&['Phelox Ltda','Transportes El Avion'].some(c=>(u.locations?.[c]||[]).some(l=>norm(l)===norm(i.loc))));
+}
+function stockAlertRecipients(i){
+  let map=new Map();
+  stockManagers().forEach(u=>map.set(u.id,u));
+  frontManagersForStockItem(i).forEach(u=>map.set(u.id,u));
+  return [...map.values()];
+}
+stockLowRows=function(){
+  return stock.filter(i=>Number(i.qty)<Number(i.ideal||0));
+}
+ensureStockLowMessagesByItem=function(){
+  purgeResolvedStockAlerts();
+  let lows=stockLowRows();
+  lows.forEach(i=>{
+    let key=stockLowKey(i);
+    stockAlertRecipients(i).forEach(u=>{
+      if(isStockLowIgnoredForUser(key,u.id))return;
+      let existing=(appMessages||[]).some(m=>m.type==='Aviso stock'&&m.toUser===u.id&&m.stockKey===key&&m.status==='Pendiente');
+      if(!existing)appMessages.unshift({id:'MSG-STOCK-'+u.id+'-'+key+'-'+Date.now(),date:now(),toUser:u.id,toName:u.name,from:'Sistema',type:'Aviso stock',title:'Bajo stock: '+i.part,body:`${i.code} en ${i.loc}: actual ${i.qty}, ideal ${i.ideal}, reponer ${Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0))}`,status:'Pendiente',read:false,stockKey:key,code:i.code,loc:i.loc});
+    });
+  });
+  saveData();
+}
+function defaultStockOrderRecipientName(){
+  return (users.find(u=>u.id==='stock_deposito')||users.find(u=>u.role==='Encargado Stock')||{}).name||'Encargado Stock Deposito General';
+}
+function createStockOrderFromAlert(key){
+  let msg=(appMessages||[]).find(m=>m.stockKey===key&&m.toUser===currentUser?.id),item=stock.find(i=>stockLowKey(i)===key);
+  if(!msg||!item)return alert('No encontre el aviso para generar el pedido.');
+  let qty=Math.max(1,(Number(item.ideal)||0)-(Number(item.qty)||0));
+  let req={id:typeof nextStockOrderId==='function'?nextStockOrderId():'PED'+Date.now(),kind:'Pedido',date:now(),company:company||'Phelox Ltda',fromLoc:item.loc,toLoc:item.loc,from:defaultStockOrderRecipientName(),items:[{code:item.code,part:item.part,qty,newItem:false,note:'Generado desde aviso de bajo stock',status:'Pendiente',delivered:0}],user:activeUserName(),userId:currentUser?.id||'',status:'Pendiente',note:`Pedido generado desde aviso de bajo stock. Actual ${item.qty}, ideal ${item.ideal}.`};
+  return confirmStockSave(`Desea agregar <b>${item.part}</b> al pedido para <b>${item.loc}</b>?`,()=>{
+    stockRequests.unshift(req);
+    moves.unshift({code:item.code,date:now(),user:activeUserName(),action:'Pedido',vehicle:'-',qty,loc:item.loc,desc:`Pedido ${req.id} generado desde aviso de bajo stock. Actual ${item.qty}, ideal ${item.ideal}.`});
+    msg.status='Pedido generado';msg.read=true;msg.orderId=req.id;
+    notifyStockOrderRecipient(req);
+    saveData();success('Pedido generado desde el aviso.');closeModal();openModule('stock');setTimeout(stockRequestsView,50);
+  });
+}
+function ignoreStockLowAlert(key){
+  let msg=(appMessages||[]).find(m=>m.stockKey===key&&m.toUser===currentUser?.id&&m.status==='Pendiente');
+  return confirmDanger('Desea ignorar este aviso de bajo stock?',()=>{
+    if(msg){msg.status='Ignorado';msg.read=true;}
+    appMessages.unshift({id:lowStockIgnoredKey(key,currentUser?.id||''),date:now(),toUser:currentUser?.id||'',toName:activeUserName(),from:activeUserName(),type:'Aviso stock',title:'Aviso ignorado',body:'Aviso de bajo stock ignorado por el encargado del frente.',status:'Ignorado',stockKey:key,read:true});
+    saveData();success('Aviso ignorado.');showUserMessages(true);
+  });
+}
+const messageActionButtonsWithStockAlert=messageActionButtons;
+messageActionButtons=function(r){
+  let base=messageActionButtonsWithStockAlert(r);
+  if(r.type==='Aviso stock'&&r.status==='Pendiente'&&r.toUser===currentUser?.id&&r.stockKey&&normalizeRoleName(currentUser?.role)==='Encargado Frente'){
+    return base+`<div style="margin-top:8px"><button class="primary" onclick="createStockOrderFromAlert('${r.stockKey}')">Agregar a pedido</button> <button class="ghost" onclick="ignoreStockLowAlert('${r.stockKey}')">Ignorar</button></div>`;
+  }
+  return base;
+}
+const baseStockAlertsByLocationIdeal=stockAlerts;
+stockAlerts=function(){
+  if(!(isAdmin()||currentUser?.role==='Encargado Stock'||canDo('stockMove')))return stockViewBox.innerHTML='<div class="notice">Los avisos de bajo stock llegan por mensajes a los encargados de cada frente. Stock general ve la reposicion completa desde esta pantalla.</div>';
+  ensureStockLowMessagesByItem();
+  let low=stockLowRows(),crit=low.filter(i=>i.qty<=i.min||i.qty<(Number(i.ideal||0)*0.5));
+  stockViewBox.innerHTML=`<div class="grid"><div class="card"><span class="muted">Avisos por ubicacion</span><div class="metric">${low.length}</div></div><div class="card"><span class="muted">Menos del 50% / critico</span><div class="metric">${crit.length}</div></div></div><div class="panel"><h2>Reposicion pendiente</h2>${low.map(i=>{let key=stockLowKey(i);return `<div class="listitem ${stockRowClass(i.qty,i.ideal,i.min)}"><div><b>${i.qty<=i.min||i.qty<(Number(i.ideal||0)*0.5)?'CRITICO':'Bajo stock ideal'} - ${i.part}</b><div class="muted">${i.loc} - Actual ${i.qty} / Ideal ubicacion ${i.ideal} - Reponer ${Math.max(0,i.ideal-i.qty)}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gold" onclick="stockEntryForm('${stockItemIndex(i)}')">Reponer</button><button class="ghost" onclick="editProductIdeals('${i.code}')">Ideales</button><button class="red" onclick="deleteStockAlert('${key}')">Borrar aviso</button></div></div>`}).join('')||'<div class="notice">No hay articulos bajo ideal.</div>'}</div><div class="panel"><h2>Lista de compra / reposicion sugerida</h2><table><tr><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Actual</th><th>Ideal ubicacion</th><th>Reponer</th><th></th></tr>${low.map(i=>{let key=stockLowKey(i);return `<tr class="${stockRowClass(i.qty,i.ideal,i.min)}"><td><b>${i.code}</b></td><td>${i.part}</td><td>${i.loc}</td><td>${i.qty}</td><td>${i.ideal}</td><td><b>${Math.max(0,i.ideal-i.qty)}</b></td><td><button class="red" onclick="deleteStockAlert('${key}')">Borrar</button></td></tr>`}).join('')||'<tr><td colspan="7">Sin avisos.</td></tr>'}</table></div>`;
+}
+ensureStockLowMessagesByItem();
 </script></body></html>
