@@ -263,6 +263,31 @@ button.red:disabled,.btn.red:disabled{color:#f8dddd!important;background:#9f6669
 #stockTable .stockActionGrid{min-width:188px!important;grid-template-columns:repeat(2,minmax(88px,1fr))!important;gap:5px!important}
 #stockTable .stockActionGrid>button{min-height:32px!important;padding:6px!important}
 #stockTable .itemPhoto:not(.big){width:48px!important;height:48px!important}
+#stockTable td.stockProductOpen{cursor:pointer;min-width:190px;outline:none;transition:background .18s ease,box-shadow .18s ease}
+#stockTable td.stockProductOpen:hover,#stockTable td.stockProductOpen:focus-visible{background:#e9f4e9!important;box-shadow:inset 0 0 0 2px #82a98b}
+#stockTable td.stockProductOpen>b{color:#173f2b;text-decoration:underline;text-decoration-color:#9db9a3;text-underline-offset:3px}
+#stockTable .stockLocationLine.stockLocationTapHint{cursor:pointer;color:#315b40;background:#edf6ed;border-color:#b7cdbb;font-weight:700}
+.stockLocationCards{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px;margin-top:14px}
+.stockLocationCard{padding:13px;border:1px solid #d5e1d6;border-radius:12px;background:#f7faf7}
+.stockLocationCard.critical{background:#fff0ee;border-color:#e3aaa6}
+.stockLocationCard.warn{background:#fff8df;border-color:#e7cf85}
+.stockLocationCardTop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+.stockLocationQty{font-size:18px;min-width:44px;text-align:center}
+.orderDecisionGrid{display:grid;gap:12px;margin-top:16px}
+.orderDecisionCard{padding:14px;border:1px solid #d5e1d6;border-radius:13px;background:#f8faf8}
+.orderDecisionCard.pending{border-color:#e7cf85;background:#fffaf0}
+.orderDecisionCard.approved,.orderDecisionCard.dispatched{border-color:#a8c9ae;background:#f0f8f1}
+.orderDecisionCard.rejected{border-color:#e3aaa6;background:#fff3f1}
+.orderDecisionHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.orderDecisionFacts{display:grid;grid-template-columns:repeat(3,minmax(90px,1fr));gap:8px;margin-top:12px}
+.orderDecisionFact{padding:9px;border-radius:9px;background:rgba(255,255,255,.72);border:1px solid rgba(128,154,132,.25)}
+.orderDecisionActions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(128,154,132,.25)}
+.purchaseProductOpen{cursor:pointer;outline:none;transition:background .18s ease,box-shadow .18s ease}
+.purchaseProductOpen:hover,.purchaseProductOpen:focus-visible{background:#e9f4e9!important;box-shadow:inset 0 0 0 2px #82a98b}
+.purchaseProductOpen b{text-decoration:underline;text-decoration-color:#9db9a3;text-underline-offset:3px;color:#173f2b}
+.purchaseLocationButton{white-space:nowrap;min-width:145px}
+@media(max-width:620px){.stockLocationCards{grid-template-columns:1fr}.stockLocationDialog{width:min(94vw,560px)!important;max-height:88vh;overflow:auto}#stockTable td.stockProductOpen{min-width:170px}}
+@media(max-width:620px){.orderDecisionHead{align-items:stretch;flex-direction:column}.orderDecisionFacts{grid-template-columns:repeat(2,minmax(90px,1fr))}.orderDecisionActions>button{flex:1;min-width:130px}}
 </style></head>
 <body>
 <header><div><b>Gestion de Flota, Stock y Taller</b><div class="small" style="color:#d1d5db">Operaciones forestales · Eucaliptus</div></div><div class="headerRight"><div id="userBox" class="userPill hidden"></div><div id="headerLogo"></div></div></header>
@@ -3134,7 +3159,7 @@ function renderStockAlertsFiltered(){
   if(summary)summary.innerHTML=`<div class="grid"><div class="card"><span class="muted">Avisos totales</span><div class="metric">${all.length}</div></div><div class="card"><span class="muted">Criticos</span><div class="metric">${crit.length}</div></div><div class="card"><span class="muted">Mostrando</span><div class="metric">${rows.length}</div><span class="muted">${loc||'Todas'} / ${severity}</span></div></div>`;
   let box=document.getElementById('stockAlertsList');
   if(!box)return;
-  box.innerHTML=`<h3>Reposicion pendiente</h3>${rows.map(i=>{let key=stockLowKey(i),sev=stockAlertSeverity(i);return `<div class="listitem ${stockRowClass(i.qty,i.ideal,i.min)}"><div><b>${sev.toUpperCase()} - ${i.part}</b><div class="muted">${i.loc} - Actual ${i.qty} / Ideal ubicacion ${i.ideal} - Reponer ${Math.max(0,i.ideal-i.qty)}</div><div class="muted">Codigo ${i.code} - Minimo ${i.min||0}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gold" onclick="stockEntryForm('${stockItemIndex(i)}')">Reponer</button><button class="ghost" onclick="editProductIdeals('${i.code}')">Ideales</button><button class="red" onclick="deleteStockAlert('${key}')">Borrar aviso</button></div></div>`}).join('')||'<div class="notice">No hay avisos para ese filtro.</div>'}${stockPurchaseSuggestionTable(rows,loc)}`;
+  box.innerHTML=`<h3>Reposicion pendiente</h3>${rows.map(i=>{let key=stockLowKey(i),sev=stockAlertSeverity(i);return `<div class="listitem ${stockRowClass(i.qty,i.ideal,i.min)}"><div><b>${sev.toUpperCase()} - ${i.part}</b><div class="muted">${i.loc} - Actual ${i.qty} / Ideal ubicacion ${i.ideal} - Reponer ${Math.max(0,i.ideal-i.qty)}</div><div class="muted">Codigo ${i.code} - Minimo ${i.min||0}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gold" onclick="stockEntryForm('${stockItemIndex(i)}')">Reponer</button><button class="ghost" onclick="editProductIdeals('${i.code}')">Ideales</button><button class="red" onclick="deleteStockAlert('${key}')">Borrar aviso</button></div></div>`}).join('')||'<div class="notice">No hay avisos para ese filtro.</div>'}`;
 }
 function stockPurchaseSuggestionTable(rows,loc=''){
   if(loc){
@@ -3398,6 +3423,37 @@ function placeIdealButtonUnderEdit(){
 }
 if(stockLocationHost){new MutationObserver(placeIdealButtonUnderEdit).observe(stockLocationHost,{childList:true,subtree:true})}
 
+function stockProductLocationRows(code){
+  let rows=visibleStock().filter(function(item){return String(item.code)===String(code)}),byLocation=new Map();
+  rows.forEach(function(item){
+    let key=item.loc||'Sin ubicacion',current=byLocation.get(key);
+    if(!current){current={loc:key,qty:0,ideal:0,min:0};byLocation.set(key,current)}
+    current.qty+=Number(item.qty)||0;current.ideal+=Number(item.ideal)||0;current.min+=Number(item.min)||0;
+  });
+  return Array.from(byLocation.values()).sort(function(a,b){return String(a.loc).localeCompare(String(b.loc))});
+}
+function showStockProductLocations(code){
+  let sample=visibleStock().find(function(item){return String(item.code)===String(code)})||stock.find(function(item){return String(item.code)===String(code)}),rows=stockProductLocationRows(code);
+  if(!sample)return alert('No encontre el articulo');
+  let total=rows.reduce(function(sum,row){return sum+row.qty},0),cards=rows.map(function(row){
+    let state=row.qty<=row.min?'critical':row.qty<row.ideal?'warn':'',label=state==='critical'?'Critico':state==='warn'?'Bajo ideal':'Disponible';
+    return `<div class="stockLocationCard ${state}"><div class="stockLocationCardTop"><div><b>${row.loc}</b><div class="muted">${label}</div></div><span class="badge ${state} stockLocationQty">${row.qty}</span></div><div class="muted">Ideal ${row.ideal} &middot; Minimo ${row.min} &middot; Reponer ${Math.max(0,row.ideal-row.qty)}</div></div>`;
+  }).join('');
+  modalRoot.innerHTML=`<div class="modalBackdrop" onclick="closeModal()"><div class="modalBox stockLocationDialog" style="max-width:min(760px,94vw)" onclick="event.stopPropagation()"><div class="top"><div><div class="modalTitle" style="color:var(--text)">${sample.part}</div><span class="muted">Codigo ${sample.code} &middot; Cantidades por ubicacion</span></div><button class="ghost" onclick="closeModal()">Cerrar</button></div><div class="notice" style="margin-top:12px"><b>Stock total: ${total}</b><div class="muted">Se muestran solamente las ubicaciones habilitadas para tu usuario.</div></div><div class="stockLocationCards">${cards||'<div class="notice">Sin cantidades visibles para este articulo.</div>'}</div></div></div>`;
+}
+function enableStockProductLocationDetails(){
+  document.querySelectorAll('#stockTable tbody tr').forEach(function(row){
+    let code=(row.cells[2]?.textContent||'').trim(),productCell=row.cells[3];
+    if(!code||!productCell||productCell.classList.contains('stockProductOpen'))return;
+    productCell.classList.add('stockProductOpen');productCell.tabIndex=0;productCell.setAttribute('role','button');productCell.setAttribute('aria-label','Ver cantidades de '+code+' por ubicacion');productCell.title='Tocar o hacer clic para ver cantidades por ubicacion';
+    let locationLine=productCell.querySelector('.stockLocationLine');
+    if(locationLine){locationLine.dataset.locationSummary=locationLine.textContent.trim();locationLine.textContent='Ver cantidades por ubicacion';locationLine.classList.add('stockLocationTapHint')}
+    productCell.onclick=function(){showStockProductLocations(code)};
+    productCell.onkeydown=function(event){if(event.key==='Enter'||event.key===' '){event.preventDefault();showStockProductLocations(code)}};
+  });
+}
+if(stockLocationHost){new MutationObserver(enableStockProductLocationDetails).observe(stockLocationHost,{childList:true,subtree:true})}
+
 var renderStockArticlesBeforeStableCompact=renderStockArticles;
 renderStockArticles=function(){
   let result=renderStockArticlesBeforeStableCompact();
@@ -3406,10 +3462,106 @@ renderStockArticles=function(){
   restoreStockArticleAlertColors();
   enforceStockActionTwoColumnGrid();
   placeIdealButtonUnderEdit();
+  enableStockProductLocationDetails();
   document.querySelectorAll('#stockTable thead th').forEach(function(th){
     let label=th.textContent.trim();if(label==='Cantidad total'||label==='Cantidad')th.textContent='Stock';
   });
   return result;
+};
+
+normalizeStockOrders=function(){
+  stockRequests.forEach(function(r){
+    if(!r.kind)r.kind='Pedido';if(!Array.isArray(r.items))r.items=orderItems(r);
+    if(r.status==='Aprobada')r.status='Aprobado';if(r.status==='Rechazada')r.status='Rechazado';
+    r.items.forEach(function(i){
+      i.qty=parseFloat(i.qty||0);i.delivered=parseFloat(i.delivered||0);
+      if(!i.status){
+        if(r.status==='Rechazado')i.status='Rechazado';
+        else if(r.status==='Aprobado')i.status='Aprobado';
+        else if(r.status==='Despachado')i.status='Despachado';
+        else if(r.status==='Parcial'&&i.delivered>0)i.status='Aprobado';
+        else i.status='Pendiente';
+      }
+    });
+    syncOrderStatus(r);
+  });
+};
+function renderStockRequestsPerItemDecision(){
+  if(!canCreateStockOrder())return alert('Tu usuario no tiene permiso para trabajar con pedidos de stock');
+  normalizeStockOrders();
+  let f=document.getElementById('orderStatusFilter')?.value||'Todos',searchValue=document.getElementById('orderSearch')?.value||'',q=norm(searchValue),rows=visibleStockRequests();
+  rows.forEach(syncOrderStatus);
+  if(f!=='Todos')rows=rows.filter(function(r){return (r.status||'Pendiente')===f});
+  if(q)rows=rows.filter(function(r){return norm(`${r.id} ${r.company} ${r.user} ${r.fromLoc} ${r.toLoc} ${r.from||''} ${orderItems(r).map(function(i){return `${i.code} ${i.part} ${i.note} ${orderItemStatus(i)}`}).join(' ')} ${r.note||''}`).includes(q)});
+  let all=visibleStockRequests();all.forEach(syncOrderStatus);
+  let counts=['Pendiente','Aprobado','Parcial','Despachado','Rechazado'].map(function(s){return `${s}: ${all.filter(function(r){return (r.status||'Pendiente')===s}).length}`}).join(' / ');
+  stockViewBox.innerHTML=`<div class="panel"><div class="top"><div><h2>Pedidos</h2><span class="muted">${counts}</span></div><button class="primary" onclick="newStockRequestForm()">${icon('plus')} Nuevo pedido</button></div><div class="notice"><b>Revision por articulo:</b> abre un pedido para aceptar o rechazar cada producto por separado.</div><div class="form"><select id="orderStatusFilter" onchange="stockRequestsView()"><option ${f==='Todos'?'selected':''}>Todos</option><option ${f==='Pendiente'?'selected':''}>Pendiente</option><option ${f==='Aprobado'?'selected':''}>Aprobado</option><option ${f==='Parcial'?'selected':''}>Parcial</option><option ${f==='Despachado'?'selected':''}>Despachado</option><option ${f==='Rechazado'?'selected':''}>Rechazado</option></select><input id="orderSearch" value="${val(searchValue)}" oninput="stockRequestsView()" placeholder="Buscar pedido, usuario, codigo, deposito o articulo..."></div><div class="tableScroll"><table><thead><tr><th>Fecha</th><th>Pedido</th><th>Usuario / frente</th><th>Pedido a</th><th>Destino</th><th>Articulos</th><th>Estado</th><th>Accion</th></tr></thead><tbody>${rows.map(function(r){let edit=orderCanRequesterEdit(r)?` <button class="ghost" onclick="editPendingStockOrder('${r.id}')">Editar pedido</button>`:'';return `<tr><td>${r.date}</td><td><b>${r.id}</b><div class="muted">${r.company}</div></td><td><b>${r.user||'-'}</b><div class="muted">${r.fromLoc||'-'}</div></td><td><b>${r.from||r.requestTo||'Stock central'}</b></td><td><b>${r.toLoc||'-'}</b></td><td>${orderQtyText(r)}${r.note?`<div class="muted">Comentario: ${r.note}</div>`:''}</td><td>${orderStatusBadge(r)}</td><td><button class="primary" onclick="openStockOrder('${r.id}')">${icon('eye')} Ver pedido</button>${edit}</td></tr>`}).join('')||'<tr><td colspan="8">Sin pedidos para ese filtro.</td></tr>'}</tbody></table></div></div>`;
+  saveData();clearChanges();
+}
+stockRequestsView=function(){return activeEditSaveAction?confirmExitWithSave(activeEditSaveAction,renderStockRequestsPerItemDecision):renderStockRequestsPerItemDecision()};
+
+function orderDecisionCardClass(item){let s=orderItemStatus(item);return s==='Aprobado'?'approved':s==='Despachado'?'dispatched':s==='Rechazado'?'rejected':'pending'}
+function renderStockOrderPerItemDecision(id){
+  let r=stockRequests.find(function(x){return x.id===id});if(!r)return;
+  normalizeStockOrders();syncOrderStatus(r);
+  let rows=orderItems(r),canDecide=orderCanDecide(r),cards=rows.map(function(i,idx){
+    let st=orderItemStatus(i),actions='';
+    if(canDecide&&st==='Pendiente')actions=`<button class="primary" onclick="approveStockOrderItem('${r.id}',${idx})">Aceptar articulo</button><button class="red" onclick="rejectStockOrderItem('${r.id}',${idx})">Rechazar articulo</button>`;
+    else if(canDecide&&st==='Aprobado')actions=`<button class="red" onclick="rejectStockOrderItem('${r.id}',${idx})">Cambiar a rechazado</button>`;
+    return `<div class="orderDecisionCard ${orderDecisionCardClass(i)}"><div class="orderDecisionHead"><div><b>${i.newItem?'Articulo nuevo':i.code}</b><h3 style="margin:4px 0 0">${i.part||'Sin nombre'}</h3></div>${orderItemStatusBadge(i)}</div><div class="orderDecisionFacts"><div class="orderDecisionFact"><span class="muted">Cantidad pedida</span><div><b>${i.qty}</b></div></div><div class="orderDecisionFact"><span class="muted">Entregado</span><div><b>${i.delivered||0}</b></div></div><div class="orderDecisionFact"><span class="muted">Pendiente</span><div><b>${orderItemPendingQty(i)}</b></div></div></div><div style="margin-top:10px"><span class="muted">Comentario</span><div>${i.responseNote||i.note||'-'}</div></div>${actions?`<div class="orderDecisionActions">${actions}</div>`:''}</div>`;
+  }).join('');
+  let approvedPending=canDecide&&rows.some(function(i){return orderItemStatus(i)==='Aprobado'&&orderItemPendingQty(i)>0}),edit=orderCanRequesterEdit(r)?`<button class="ghost" onclick="editPendingStockOrder('${r.id}')">Editar pedido</button>`:'';
+  stockViewBox.innerHTML=`<button class="ghost" onclick="stockRequestsView()">< Volver a pedidos</button><div class="panel"><div class="top"><div><h2>Ver pedido ${r.id}</h2><span class="muted">${r.date} - ${r.company}</span></div>${orderStatusBadge(r)}</div><div class="grid"><div class="card"><span class="muted">Solicita</span><h3>${r.user||'-'}</h3><p>${r.fromLoc||'-'}</p></div><div class="card"><span class="muted">Necesita en</span><h3>${r.toLoc||'-'}</h3><p>${r.from||'Stock central'}</p></div><div class="card"><span class="muted">Comentario general</span><p>${r.note||'-'}</p></div></div><div class="notice"><b>${canDecide?'Decidi cada articulo por separado.':'Seguimiento por articulo.'}</b><div class="muted">El estado general del pedido se actualiza automaticamente segun las decisiones de cada producto.</div></div><div class="orderDecisionGrid">${cards||'<div class="notice">Este pedido no tiene articulos.</div>'}</div><div class="modalActions">${approvedPending?`<button class="gold" onclick="dispatchStockOrderForm('${r.id}')">Preparar despacho de aprobados</button>`:''}${edit}</div></div>`;
+  saveData();clearChanges();
+}
+openStockOrder=function(id){return activeEditSaveAction?confirmExitWithSave(activeEditSaveAction,function(){renderStockOrderPerItemDecision(id)}):renderStockOrderPerItemDecision(id)};
+approveStockRequest=function(id){return openStockOrder(id)};
+rejectStockRequest=function(id){return openStockOrder(id)};
+
+function stockPurchaseList(){
+  if(!(isAdmin()||currentUser?.role==='Encargado Stock'||canDo('stockMove')))return stockViewBox.innerHTML='<div class="notice">Tu usuario no tiene permiso para ver la lista general de compra y reposicion.</div>';
+  ensureStockLowMessagesByItem();
+  let currentLoc=document.getElementById('purchaseLocFilter')?.value||'',currentSeverity=document.getElementById('purchaseSeverityFilter')?.value||'Todos',all=stockLowRows(),locationsList=[...new Set(all.map(function(i){return i.loc}).filter(Boolean))].sort();
+  stockViewBox.innerHTML=`<div id="purchaseSummary"></div><div class="panel"><div class="top"><div><h2>Lista de compra / reposicion sugerida</h2><span class="muted">Acceso independiente de los mensajes y avisos de stock.</span></div></div><div class="form"><label>Ubicacion<select id="purchaseLocFilter" onchange="renderStockPurchaseList()"><option value="">Todas las ubicaciones</option>${locationsList.map(function(l){return `<option value="${val(l)}" ${l===currentLoc?'selected':''}>${l}</option>`}).join('')}</select></label><label>Gravedad<select id="purchaseSeverityFilter" onchange="renderStockPurchaseList()"><option ${currentSeverity==='Todos'?'selected':''}>Todos</option><option ${currentSeverity==='Critico'?'selected':''}>Critico</option><option ${currentSeverity==='Bajo ideal'?'selected':''}>Bajo ideal</option></select></label></div></div><div id="purchaseListTable"></div>`;
+  renderStockPurchaseList();
+}
+function purchaseRowsFiltered(){
+  let loc=document.getElementById('purchaseLocFilter')?.value||'',severity=document.getElementById('purchaseSeverityFilter')?.value||'Todos';
+  return stockLowRows().filter(function(i){return (!loc||norm(i.loc)===norm(loc))&&(severity==='Todos'||stockAlertSeverity(i)===severity)});
+}
+function groupedPurchaseRows(rows){
+  let grouped=new Map();
+  rows.forEach(function(i){
+    let code=String(i.code||'').toUpperCase(),r=grouped.get(code),need=Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0));
+    if(!r){r={code:code,part:i.part,brand:i.brand||'',model:i.model||'',severity:'Bajo ideal',current:0,ideal:0,reponer:0,items:[]};grouped.set(code,r)}
+    r.current+=Number(i.qty)||0;r.ideal+=Number(i.ideal)||0;r.reponer+=need;r.items.push(i);
+    if(stockAlertSeverity(i)==='Critico')r.severity='Critico';
+  });
+  return Array.from(grouped.values()).sort(function(a,b){return (a.severity==='Critico'?0:1)-(b.severity==='Critico'?0:1)||b.reponer-a.reponer||String(a.part).localeCompare(String(b.part))});
+}
+function showPurchaseLocations(code){
+  let rows=purchaseRowsFiltered().filter(function(i){return String(i.code).toUpperCase()===String(code).toUpperCase()}).sort(function(a,b){return String(a.loc).localeCompare(String(b.loc))}),sample=rows[0]||stock.find(function(i){return String(i.code).toUpperCase()===String(code).toUpperCase()});
+  if(!sample)return alert('No encontre el articulo');
+  let total=rows.reduce(function(sum,i){return sum+Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0))},0),cards=rows.map(function(i){let sev=stockAlertSeverity(i),state=sev==='Critico'?'critical':'warn',need=Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0));return `<div class="stockLocationCard ${state}"><div class="stockLocationCardTop"><div><b>${i.loc}</b><div class="muted">${sev}</div></div><span class="badge ${state} stockLocationQty">${need}</span></div><div class="muted">Actual ${i.qty} &middot; Ideal ${i.ideal} &middot; Minimo ${i.min||0}</div><div style="margin-top:7px"><b>Reponer ${need}</b></div></div>`}).join('');
+  modalRoot.innerHTML=`<div class="modalBackdrop" onclick="closeModal()"><div class="modalBox stockLocationDialog" style="max-width:min(760px,94vw)" onclick="event.stopPropagation()"><div class="top"><div><div class="modalTitle" style="color:var(--text)">${sample.part}</div><span class="muted">${sample.code} &middot; Ubicaciones a reponer</span></div><button class="ghost" onclick="closeModal()">Cerrar</button></div><div class="notice" style="margin-top:12px"><b>Total sugerido para reponer: ${total}</b><div class="muted">Detalle segun los filtros actuales de la lista de compra.</div></div><div class="stockLocationCards">${cards||'<div class="notice">No hay ubicaciones pendientes para este producto.</div>'}</div></div></div>`;
+}
+function stockPurchaseTableForView(rows,loc){
+  if(!loc){
+    let grouped=groupedPurchaseRows(rows);
+    return `<div class="panel"><h2>Productos a comprar / reponer</h2><p class="muted">Una fila por producto. Toca el articulo o el boton para ver el detalle de cada ubicacion.</p><div class="tableScroll"><table><thead><tr><th>Gravedad</th><th>Codigo</th><th>Articulo</th><th>Ubicaciones</th><th>Actual total</th><th>Ideal total</th><th>Reponer total</th><th>Acciones</th></tr></thead><tbody>${grouped.map(function(r){let first=r.items[0],cls=r.severity==='Critico'?'stockCriticalRow':'stockWarnRow';return `<tr class="${cls}"><td><b>${r.severity}</b></td><td><b>${r.code}</b></td><td class="purchaseProductOpen" tabindex="0" role="button" title="Ver ubicaciones a reponer" onclick="showPurchaseLocations('${r.code}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showPurchaseLocations('${r.code}')}"><b>${r.part}</b><div class="muted">${r.brand} ${r.model}</div></td><td><button class="ghost purchaseLocationButton" onclick="showPurchaseLocations('${r.code}')">Ver ubicaciones (${r.items.length})</button></td><td>${r.current}</td><td>${r.ideal}</td><td><b>${r.reponer}</b></td><td><button class="ghost" onclick="editProductIdeals('${r.code}')">Ideales</button> <button class="gold" onclick="stockEntryForm('${stockItemIndex(first)}')">Reponer</button></td></tr>`}).join('')||'<tr><td colspan="8">No hay productos para reponer con estos filtros.</td></tr>'}</tbody></table></div></div>`;
+  }
+  return `<div class="panel"><h2>Reposicion para ${loc}</h2><div class="tableScroll"><table><thead><tr><th>Gravedad</th><th>Codigo</th><th>Articulo</th><th>Actual</th><th>Ideal</th><th>Reponer</th><th>Acciones</th></tr></thead><tbody>${rows.map(function(i){let sev=stockAlertSeverity(i);return `<tr class="${stockRowClass(i.qty,i.ideal,i.min)}"><td><b>${sev}</b></td><td><b>${i.code}</b></td><td>${i.part}</td><td>${i.qty}</td><td>${i.ideal}</td><td><b>${Math.max(0,i.ideal-i.qty)}</b></td><td><button class="ghost" onclick="editProductIdeals('${i.code}')">Ideales</button> <button class="gold" onclick="stockEntryForm('${stockItemIndex(i)}')">Reponer</button></td></tr>`}).join('')||'<tr><td colspan="7">No hay productos para reponer con estos filtros.</td></tr>'}</tbody></table></div></div>`;
+}
+function renderStockPurchaseList(){
+  let all=stockLowRows(),rows=purchaseRowsFiltered(),loc=document.getElementById('purchaseLocFilter')?.value||'',severity=document.getElementById('purchaseSeverityFilter')?.value||'Todos',units=rows.reduce(function(sum,i){return sum+Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0))},0),summary=document.getElementById('purchaseSummary'),box=document.getElementById('purchaseListTable');
+  if(summary)summary.innerHTML=`<div class="grid"><div class="card"><span class="muted">Productos bajo ideal</span><div class="metric">${all.length}</div></div><div class="card"><span class="muted">Productos mostrados</span><div class="metric">${rows.length}</div><span class="muted">${loc||'Todas'} / ${severity}</span></div><div class="card"><span class="muted">Unidades a reponer</span><div class="metric">${units}</div></div></div>`;
+  if(box)box.innerHTML=stockPurchaseTableForView(rows,loc);
+}
+
+stockView=function(){
+  let actions=`${(isAdmin()||isCentralStockUser())?`<button class="ghost" onclick="leaveIfSaved(newStockItemForm)">${icon('plus')} Nuevo articulo</button>`:''} ${canDo('stockEntry')?`<button class="gold" onclick="leaveIfSaved(stockEntryForm)">${icon('in')} Ingresar</button>`:''} ${canDo('stockConsume')?`<button class="primary" onclick="leaveIfSaved(stockConsumeForm)">${icon('out')} Consumir</button>`:''} ${canDo('stockMove')?`<button class="ghost" onclick="leaveIfSaved(stockMoveForm)">${icon('move')} Mover ubicacion</button>`:''} ${canCreateStockOrder()?`<button class="primary" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button>`:''} ${(isAdmin()||currentUser?.role==='Encargado Stock'||canDo('stockMove'))?`<button class="gold" onclick="leaveIfSaved(stockPurchaseList)">${icon('history')} Lista de compra</button>`:''}`;
+  content.innerHTML=`<div class="panel"><div class="top"><div><h2>Stock</h2><span class="muted">Control de articulos, pedidos, movimientos y compras sugeridas</span></div><div>${actions}</div></div><div class="tabs"><button class="primary" onclick="leaveIfSaved(stockArticles)">${icon('box')} Articulos</button><button class="ghost" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button><button class="ghost" onclick="leaveIfSaved(stockAlerts)">${icon('history')} Mensajes / avisos</button><button class="ghost" onclick="leaveIfSaved(stockConsumptions)">${icon('out')} Consumos</button><button class="ghost" onclick="leaveIfSaved(stockEntries)">${icon('in')} Ingresos</button><button class="ghost" onclick="leaveIfSaved(stockMoves)">${icon('move')} Movimientos</button><button class="ghost" onclick="leaveIfSaved(stockProductHistory)">${icon('history')} Historial por producto</button></div><div id="stockViewBox"></div></div>`;
+  stockArticles();
 };
 
 cardIcon=function(name){
