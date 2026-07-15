@@ -2784,8 +2784,9 @@ function productIdealRows(code){
 function editProductIdeals(code){
   let rows=productIdealRows(code),sample=rows[0]||stock.find(i=>i.code===code);
   if(!sample)return alert('No encontre el articulo');
-  stockViewBox.innerHTML=`<button class="ghost" onclick="stockArticles()">< Volver</button><div class="panel"><div class="top"><div><h2>Stock ideal por ubicacion</h2><span class="muted">${sample.code} - ${sample.part}</span></div></div><div class="notice">Cada ubicacion puede tener su propio ideal y minimo. Los avisos se calculan con el ideal de esa ubicacion, no con el total general.</div><table><tr><th>Ubicacion</th><th>Actual</th><th>Ideal</th><th>Minimo / critico</th><th>Reponer</th></tr>${rows.map((i,n)=>`<tr><td><b>${i.loc}</b></td><td>${i.qty}</td><td><input id="idealLoc${n}" type="number" min="0" value="${i.ideal||0}" oninput="markDirty()"></td><td><input id="minLoc${n}" type="number" min="0" value="${i.min||0}" oninput="markDirty()"></td><td>${Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0))}</td></tr>`).join('')||'<tr><td colspan="5">Sin ubicaciones visibles para este articulo.</td></tr>'}</table><button class="primary wide" onclick="saveProductIdeals('${code}')">Guardar ideales por ubicacion</button></div>`;
+  stockViewBox.innerHTML=`<button class="ghost" onclick="leaveIfSaved(stockArticles)">< Volver</button><div class="panel"><div class="top"><div><h2>Stock ideal por ubicacion</h2><span class="muted">${sample.code} - ${sample.part}</span></div></div><div class="notice">Cada ubicacion puede tener su propio ideal y minimo. Los avisos se calculan con el ideal de esa ubicacion, no con el total general.</div><table><tr><th>Ubicacion</th><th>Actual</th><th>Ideal</th><th>Minimo / critico</th><th>Reponer</th></tr>${rows.map((i,n)=>`<tr><td><b>${i.loc}</b></td><td>${i.qty}</td><td><input id="idealLoc${n}" type="number" min="0" value="${i.ideal||0}" oninput="markDirty()"></td><td><input id="minLoc${n}" type="number" min="0" value="${i.min||0}" oninput="markDirty()"></td><td>${Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0))}</td></tr>`).join('')||'<tr><td colspan="5">Sin ubicaciones visibles para este articulo.</td></tr>'}</table><button class="primary wide" onclick="saveProductIdeals('${code}')">Guardar ideales por ubicacion</button></div>`;
   window.__idealRows=rows;
+  setEditSaveAction(()=>saveProductIdeals(code));
   trackChanges();
 }
 function saveProductIdeals(code){
@@ -2875,8 +2876,43 @@ const baseStockAlertsByLocationIdeal=stockAlerts;
 stockAlerts=function(){
   if(!(isAdmin()||currentUser?.role==='Encargado Stock'||canDo('stockMove')))return stockViewBox.innerHTML='<div class="notice">Los avisos de bajo stock llegan por mensajes a los encargados de cada frente. Stock general ve la reposicion completa desde esta pantalla.</div>';
   ensureStockLowMessagesByItem();
-  let low=stockLowRows(),crit=low.filter(i=>i.qty<=i.min||i.qty<(Number(i.ideal||0)*0.5));
-  stockViewBox.innerHTML=`<div class="grid"><div class="card"><span class="muted">Avisos por ubicacion</span><div class="metric">${low.length}</div></div><div class="card"><span class="muted">Menos del 50% / critico</span><div class="metric">${crit.length}</div></div></div><div class="panel"><h2>Reposicion pendiente</h2>${low.map(i=>{let key=stockLowKey(i);return `<div class="listitem ${stockRowClass(i.qty,i.ideal,i.min)}"><div><b>${i.qty<=i.min||i.qty<(Number(i.ideal||0)*0.5)?'CRITICO':'Bajo stock ideal'} - ${i.part}</b><div class="muted">${i.loc} - Actual ${i.qty} / Ideal ubicacion ${i.ideal} - Reponer ${Math.max(0,i.ideal-i.qty)}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gold" onclick="stockEntryForm('${stockItemIndex(i)}')">Reponer</button><button class="ghost" onclick="editProductIdeals('${i.code}')">Ideales</button><button class="red" onclick="deleteStockAlert('${key}')">Borrar aviso</button></div></div>`}).join('')||'<div class="notice">No hay articulos bajo ideal.</div>'}</div><div class="panel"><h2>Lista de compra / reposicion sugerida</h2><table><tr><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Actual</th><th>Ideal ubicacion</th><th>Reponer</th><th></th></tr>${low.map(i=>{let key=stockLowKey(i);return `<tr class="${stockRowClass(i.qty,i.ideal,i.min)}"><td><b>${i.code}</b></td><td>${i.part}</td><td>${i.loc}</td><td>${i.qty}</td><td>${i.ideal}</td><td><b>${Math.max(0,i.ideal-i.qty)}</b></td><td><button class="red" onclick="deleteStockAlert('${key}')">Borrar</button></td></tr>`}).join('')||'<tr><td colspan="7">Sin avisos.</td></tr>'}</table></div>`;
+  let currentLoc=document.getElementById('stockAlertLocFilter')?.value||'';
+  let currentSeverity=document.getElementById('stockAlertSeverityFilter')?.value||'Todos';
+  let all=stockLowRows(),locationsList=[...new Set(all.map(i=>i.loc).filter(Boolean))].sort();
+  stockViewBox.innerHTML=`<div id="stockAlertsSummary"></div><div class="panel"><div class="top"><div><h2>Mensajes / avisos de stock</h2><span class="muted">Filtrar por ubicacion y gravedad para priorizar reposicion.</span></div></div><div class="form"><label>Ubicacion<select id="stockAlertLocFilter" onchange="renderStockAlertsFiltered()"><option value="">Todas las ubicaciones</option>${locationsList.map(l=>`<option value="${val(l)}" ${l===currentLoc?'selected':''}>${l}</option>`).join('')}</select></label><label>Gravedad<select id="stockAlertSeverityFilter" onchange="renderStockAlertsFiltered()"><option ${currentSeverity==='Todos'?'selected':''}>Todos</option><option ${currentSeverity==='Critico'?'selected':''}>Critico</option><option ${currentSeverity==='Bajo ideal'?'selected':''}>Bajo ideal</option></select></label></div><div id="stockAlertsList"></div></div>`;
+  renderStockAlertsFiltered();
+}
+function stockAlertSeverity(i){
+  return Number(i.qty)<=Number(i.min||0)||Number(i.qty)<(Number(i.ideal||0)*0.5)?'Critico':'Bajo ideal';
+}
+function filteredStockLowRows(){
+  let loc=document.getElementById('stockAlertLocFilter')?.value||'',severity=document.getElementById('stockAlertSeverityFilter')?.value||'Todos';
+  return stockLowRows().filter(i=>(!loc||norm(i.loc)===norm(loc))&&(severity==='Todos'||stockAlertSeverity(i)===severity));
+}
+function renderStockAlertsFiltered(){
+  let all=stockLowRows(),crit=all.filter(i=>stockAlertSeverity(i)==='Critico'),rows=filteredStockLowRows();
+  let loc=document.getElementById('stockAlertLocFilter')?.value||'',severity=document.getElementById('stockAlertSeverityFilter')?.value||'Todos';
+  let summary=document.getElementById('stockAlertsSummary');
+  if(summary)summary.innerHTML=`<div class="grid"><div class="card"><span class="muted">Avisos totales</span><div class="metric">${all.length}</div></div><div class="card"><span class="muted">Criticos</span><div class="metric">${crit.length}</div></div><div class="card"><span class="muted">Mostrando</span><div class="metric">${rows.length}</div><span class="muted">${loc||'Todas'} / ${severity}</span></div></div>`;
+  let box=document.getElementById('stockAlertsList');
+  if(!box)return;
+  box.innerHTML=`<h3>Reposicion pendiente</h3>${rows.map(i=>{let key=stockLowKey(i),sev=stockAlertSeverity(i);return `<div class="listitem ${stockRowClass(i.qty,i.ideal,i.min)}"><div><b>${sev.toUpperCase()} - ${i.part}</b><div class="muted">${i.loc} - Actual ${i.qty} / Ideal ubicacion ${i.ideal} - Reponer ${Math.max(0,i.ideal-i.qty)}</div><div class="muted">Codigo ${i.code} - Minimo ${i.min||0}</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="gold" onclick="stockEntryForm('${stockItemIndex(i)}')">Reponer</button><button class="ghost" onclick="editProductIdeals('${i.code}')">Ideales</button><button class="red" onclick="deleteStockAlert('${key}')">Borrar aviso</button></div></div>`}).join('')||'<div class="notice">No hay avisos para ese filtro.</div>'}${stockPurchaseSuggestionTable(rows,loc)}`;
+}
+function stockPurchaseSuggestionTable(rows,loc=''){
+  if(loc){
+    return `<div class="panel"><h2>Lista de compra / reposicion sugerida</h2><table><tr><th>Gravedad</th><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Actual</th><th>Ideal ubicacion</th><th>Reponer</th><th></th></tr>${rows.map(i=>{let key=stockLowKey(i),sev=stockAlertSeverity(i);return `<tr class="${stockRowClass(i.qty,i.ideal,i.min)}"><td><b>${sev}</b></td><td><b>${i.code}</b></td><td>${i.part}</td><td>${i.loc}</td><td>${i.qty}</td><td>${i.ideal}</td><td><b>${Math.max(0,i.ideal-i.qty)}</b></td><td><button class="red" onclick="deleteStockAlert('${key}')">Borrar</button></td></tr>`}).join('')||'<tr><td colspan="8">Sin avisos.</td></tr>'}</table></div>`;
+  }
+  let grouped=new Map();
+  rows.forEach(i=>{
+    let code=String(i.code||'').toUpperCase(),r=grouped.get(code);
+    if(!r){r={code,part:i.part,brand:i.brand||'',model:i.model||'',severity:'Bajo ideal',current:0,ideal:0,reponer:0,locations:[],items:[]};grouped.set(code,r)}
+    let need=Math.max(0,(Number(i.ideal)||0)-(Number(i.qty)||0));
+    r.current+=Number(i.qty)||0;r.ideal+=Number(i.ideal)||0;r.reponer+=need;r.items.push(i);
+    if(stockAlertSeverity(i)==='Critico')r.severity='Critico';
+    r.locations.push(`${i.loc}: reponer ${need} (actual ${i.qty} / ideal ${i.ideal})`);
+  });
+  let rowsGrouped=[...grouped.values()].sort((a,b)=>(a.severity==='Critico'?0:1)-(b.severity==='Critico'?0:1)||b.reponer-a.reponer||a.part.localeCompare(b.part));
+  return `<div class="panel"><h2>Lista de compra / reposicion sugerida</h2><p class="muted">Agrupada por producto porque estas viendo todas las ubicaciones. El detalle indica cuanto falta en cada frente o deposito.</p><table><tr><th>Gravedad</th><th>Codigo</th><th>Articulo</th><th>Ubicaciones a reponer</th><th>Actual total</th><th>Ideal total</th><th>Comprar / reponer total</th><th></th></tr>${rowsGrouped.map(r=>{let first=r.items[0],cls=r.severity==='Critico'?'stockCriticalRow':'stockWarnRow';return `<tr class="${cls}"><td><b>${r.severity}</b></td><td><b>${r.code}</b></td><td>${r.part}<div class="muted">${r.brand} ${r.model}</div></td><td>${r.locations.join('<br>')}</td><td>${r.current}</td><td>${r.ideal}</td><td><b>${r.reponer}</b></td><td><button class="ghost" onclick="editProductIdeals('${r.code}')">Ideales</button> <button class="gold" onclick="stockEntryForm('${stockItemIndex(first)}')">Reponer</button></td></tr>`}).join('')||'<tr><td colspan="8">Sin avisos.</td></tr>'}</table></div>`;
 }
 ensureStockLowMessagesByItem();
 </script></body></html>
