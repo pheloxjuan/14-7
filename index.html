@@ -3924,15 +3924,24 @@ function openExpensesFromCompanies(){
   if(!isAdmin())return alert('Tu usuario no tiene acceso al resumen general de gastos');
   expensesFromCompanies=true;expenseCompanyFilter='';adminFromCompanies=false;companies.classList.add('hidden');app.classList.remove('hidden');mainMenu.classList.add('hidden');module.classList.remove('hidden');companyTitle.textContent='Resumen de gastos general';headerLogo.innerHTML='';expensesView();
 }
+function openAdminSectionFromCompanies(section){
+  if(!isAdmin())return alert('Solo el administrador puede entrar a esta seccion');
+  expensesFromCompanies=false;adminFromCompanies=true;company=company||'Phelox Ltda';companies.classList.add('hidden');app.classList.remove('hidden');mainMenu.classList.add('hidden');module.classList.remove('hidden');companyTitle.textContent=section==='control'?'Control de empresa':section==='personnel'?'Personal':'Ajustes de administracion';headerLogo.innerHTML='';
+  content.innerHTML=`<div class="panel"><div class="top"><div><h2>${companyTitle.textContent}</h2><span class="muted">Acceso directo desde la pantalla principal del administrador.</span></div><button class="ghost" onclick="backCompaniesFromAdmin()">Volver a principal</button></div><div id="adminBox"></div></div>`;
+  if(section==='control')adminControlCenter();else if(section==='personnel')adminPersonnel();else adminSettingsHub();
+}
 const renderCompanyScreenBeforeExpenses=renderCompanyScreen;
 renderCompanyScreen=function(){
   renderCompanyScreenBeforeExpenses();
   if(!isAdmin())return;
   let grid=companies.querySelector('.grid');
-  if(grid&&!document.getElementById('adminExpensesHomeCard'))grid.insertAdjacentHTML('beforeend',`<div id="adminExpensesHomeCard" class="card" onclick="openExpensesFromCompanies()">${cardIcon('chart')}<h2>Resumen de gastos</h2><span class="muted">Total de las dos empresas y filtros detallados</span></div>`);
+  Array.from(grid?.querySelectorAll('.card')||[]).forEach(function(card){if(card.querySelector('h2')?.textContent.trim()==='Administracion')card.remove()});
+  if(grid&&!document.getElementById('adminExpensesHomeCard'))grid.insertAdjacentHTML('beforeend',`<div id="adminExpensesHomeCard" class="card" onclick="openExpensesFromCompanies()">${cardIcon('chart')}<h2>Resumen de gastos</h2><span class="muted">Total de las dos empresas y filtros detallados</span></div><div class="card" onclick="openAdminSectionFromCompanies('control')">${cardIcon('eye')}<h2>Control de empresa</h2><span class="muted">Solicitudes, tareas, gastos y movimientos</span></div><div class="card" onclick="openAdminSectionFromCompanies('personnel')">${cardIcon('user')}<h2>Personal</h2><span class="muted">Usuarios, ubicaciones y actividad</span></div><div class="card" onclick="openAdminSectionFromCompanies('settings')">${cardIcon('settings')}<h2>Ajustes de administracion</h2><span class="muted">Usuarios, flota, ubicaciones y configuracion</span></div>`);
 };
 const enterBeforeGeneralExpenses=enter;
 enter=function(c,area=''){expensesFromCompanies=false;expenseCompanyFilter='';return enterBeforeGeneralExpenses(c,area)};
+const adminViewBeforePrincipalSections=adminView;
+adminView=function(){if(adminFromCompanies)return backCompaniesFromAdmin();return adminViewBeforePrincipalSections()};
 function expenseAmountsText(uyu,usd){
   let values=[];if(Number(uyu))values.push(moneyCurrency(Number(uyu),'UYU'));if(Number(usd))values.push(moneyCurrency(Number(usd),'USD'));
   return values.join(' / ')||moneyCurrency(0,'UYU');
@@ -4010,6 +4019,175 @@ stockView=function(){
   content.innerHTML=`<div class="panel"><div class="top"><div><h2>Stock</h2><span class="muted">Control de articulos, pedidos, movimientos y compras sugeridas</span></div><div>${actions}</div></div><div class="tabs"><button class="primary" onclick="leaveIfSaved(stockArticles)">${icon('box')} Articulos</button><button class="ghost" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button><button class="ghost" onclick="leaveIfSaved(stockAlerts)">${icon('history')} Mensajes / avisos</button><button class="ghost" onclick="leaveIfSaved(stockConsumptions)">${icon('out')} Consumos</button><button class="ghost" onclick="leaveIfSaved(stockEntries)">${icon('in')} Ingresos</button><button class="ghost" onclick="leaveIfSaved(stockMoves)">${icon('move')} Movimientos</button><button class="ghost" onclick="leaveIfSaved(stockProductHistory)">${icon('history')} Historial por producto</button></div><div id="stockViewBox"></div></div>`;
   stockArticles();
 };
+
+const companyRegistryKey=dataKey+'_company_registry_v1';
+let companyRegistry=[];
+function companyRegistryDefaults(){
+  return [
+    {id:'phelox',systemKey:'Phelox Ltda',name:'Phelox Ltda',active:true,stockMode:'shared',logo:logos['Phelox Ltda']||''},
+    {id:'avion',systemKey:'Transportes El Avion',name:'Transportes El Avion',active:true,stockMode:'shared',logo:logos['Transportes El Avion']||''}
+  ];
+}
+function loadCompanyRegistry(){
+  let saved=[];try{saved=JSON.parse(localStorage.getItem(companyRegistryKey)||'[]')}catch(e){}
+  companyRegistry=companyRegistryDefaults().map(function(base){return {...base,...(saved.find(function(c){return c.id===base.id})||{}),systemKey:base.systemKey}}).concat(saved.filter(function(c){return !['phelox','avion'].includes(c.id)}));
+  companyRegistry.forEach(function(c){if(c.systemKey&&c.logo)logos[c.systemKey]=c.logo});
+}
+function saveCompanyRegistry(){localStorage.setItem(companyRegistryKey,JSON.stringify(companyRegistry))}
+function isSuperAdmin(){return currentUser?.role==='Superadministrador'||currentUser?.id==='juan'}
+function fullAdminLocations(){return {'Phelox Ltda':(locations['Phelox Ltda']||[]).slice(),'Transportes El Avion':(locations['Transportes El Avion']||[]).slice()}}
+function ensureAdministratorRoles(){
+  let juan=users.find(function(u){return u.id==='juan'});if(juan){juan.role='Superadministrador';juan.perms={all:true};juan.locations=fullAdminLocations()}
+  [{id:'admin_general_1',name:'Administrador General 1'},{id:'admin_general_2',name:'Administrador General 2'}].forEach(function(base){
+    let u=users.find(function(row){return row.id===base.id});
+    if(!u){u={...base,role:'Administrador general',pass:'1234',perms:{all:true},locations:fullAdminLocations(),vehiclesAll:{'Phelox Ltda':true,'Transportes El Avion':true},vehicles:{'Phelox Ltda':vehicleIdsForCompany('Phelox Ltda'),'Transportes El Avion':vehicleIdsForCompany('Transportes El Avion')}};users.push(u)}
+    else{u.role='Administrador general';u.perms={all:true}}
+  });
+  saveData();renderLoginUsers();
+}
+function companyStatusBadge(c){return c.active?'<span class="badge approved">Activa</span>':'<span class="badge rejected">Desactivada</span>'}
+function adminCompanies(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede gestionar empresas');
+  adminBox.innerHTML=`<div class="panel"><div class="top"><div><h3>Empresas</h3><span class="muted">Crear, editar o desactivar empresas sin borrar su historial.</span></div><div><button class="ghost" onclick="adminSettingsHub()">Volver a ajustes</button> <button class="primary" onclick="adminCompanyForm()">${icon('plus')} Nueva empresa</button></div></div><div class="tableScroll"><table><thead><tr><th>Logo</th><th>Empresa</th><th>Estado</th><th>Modalidad de stock</th><th>Clave interna</th><th></th></tr></thead><tbody>${companyRegistry.map(function(c){return `<tr><td>${c.logo?`<img src="${c.logo}" style="width:76px;height:48px;object-fit:contain;border-radius:8px;background:#fff" alt="Logo">`:'-'}</td><td><b>${c.name}</b>${!c.active?'<div class="dangerText">Empresa desactivada</div>':''}</td><td>${companyStatusBadge(c)}</td><td>${c.stockMode==='private'?'Stock propio y oculto':'Stock general compartido'}</td><td>${c.systemKey||c.id}</td><td><button class="ghost" onclick="adminCompanyForm('${c.id}')">${icon('edit')} Editar</button> <button class="${c.active?'red':'primary'}" onclick="toggleManagedCompany('${c.id}')">${c.active?'Desactivar':'Reactivar'}</button></td></tr>`}).join('')}</tbody></table></div><div id="adminCompanyEditor"></div></div>`;
+}
+function adminCompanyForm(id=''){
+  let c=companyRegistry.find(function(row){return row.id===id})||{id:'empresa_'+Date.now(),name:'',active:true,stockMode:'private',logo:''},box=document.getElementById('adminCompanyEditor');if(!box)return;
+  box.innerHTML=`<div class="panel"><div class="top"><div><h3>${id?'Editar empresa':'Nueva empresa'}</h3><span class="muted">${id&&c.systemKey?'El nombre interno se conserva para no modificar el historial existente.':'Completa los datos principales.'}</span></div><button class="ghost" onclick="adminCompanyEditor.innerHTML=''">Cerrar</button></div><div class="form"><label>Nombre<input id="companyEditName" value="${val(c.name)}" placeholder="Nombre de la empresa"></label><label>Modalidad de stock<select id="companyEditStock"><option value="shared" ${c.stockMode==='shared'?'selected':''}>Stock general compartido</option><option value="private" ${c.stockMode==='private'?'selected':''}>Stock propio y oculto</option></select></label><label>Logo<input id="companyEditLogo" type="file" accept="image/*" onchange="previewManagedCompanyLogo(this)"></label><div id="companyLogoPreview" class="card">${c.logo?`<img src="${c.logo}" style="max-width:180px;max-height:100px;object-fit:contain" alt="Logo">`:'Sin logo seleccionado'}</div><div class="wide notice"><b>Cambio de stock:</b> la modalidad puede modificarse. Las existencias actuales no se borran; antes de moverlas se pedira confirmacion en una etapa posterior.</div><button class="primary wide" onclick="saveManagedCompany('${c.id}')">Guardar empresa</button></div></div>`;window.companyLogoDraft=c.logo||'';
+}
+async function previewManagedCompanyLogo(input){if(!input?.files?.[0])return;window.companyLogoDraft=await resizeImageFile(input.files[0]);let box=document.getElementById('companyLogoPreview');if(box)box.innerHTML=`<img src="${window.companyLogoDraft}" style="max-width:180px;max-height:100px;object-fit:contain" alt="Logo">`}
+function saveManagedCompany(id){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede guardar empresas');
+  let name=(document.getElementById('companyEditName')?.value||'').trim(),stockMode=document.getElementById('companyEditStock')?.value||'private';if(!name)return alert('Escribi el nombre de la empresa');
+  let c=companyRegistry.find(function(row){return row.id===id});
+  if(!c){c={id:id,name:name,active:true,stockMode:stockMode,logo:window.companyLogoDraft||'',createdAt:now()};companyRegistry.push(c);locations[name]=locations[name]||[]}
+  else{c.name=name;c.stockMode=stockMode;c.logo=window.companyLogoDraft||c.logo||''}
+  if(c.systemKey&&c.logo)logos[c.systemKey]=c.logo;saveCompanyRegistry();success('Empresa guardada sin modificar los registros historicos.');adminCompanies();
+}
+function toggleManagedCompany(id){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede cambiar el estado de una empresa');
+  let c=companyRegistry.find(function(row){return row.id===id});if(!c)return;
+  modalConfirmAction=function(){c.active=!c.active;saveCompanyRegistry();closeModal();success(c.active?'Empresa reactivada.':'Empresa desactivada. Su historial se conserva.');adminCompanies()};
+  modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">${c.active?'Desactivar':'Reactivar'} empresa</div><p>${c.active?'La empresa dejara de aparecer para los usuarios generales, pero no se borrara ningun dato.':'La empresa volvera a estar disponible.'}</p><div class="modalActions"><button class="ghost" onclick="closeModal()">Cancelar</button><button class="${c.active?'red':'primary'}" onclick="runModalConfirm()">Confirmar</button></div></div></div>`;
+}
+function openManagedCompanyInfo(id){
+  let c=companyRegistry.find(function(row){return row.id===id});if(!c)return;if(!c.active&&!isSuperAdmin())return alert('Esta empresa esta desactivada');
+  companies.classList.add('hidden');app.classList.remove('hidden');mainMenu.classList.add('hidden');module.classList.remove('hidden');companyTitle.textContent=c.name;headerLogo.innerHTML=c.logo?`<img src="${c.logo}">`:'';
+  content.innerHTML=`<div class="panel"><div class="top"><div><h2>${c.name}</h2><span class="muted">Empresa administrada desde el registro general.</span></div><button class="ghost" onclick="home()">Volver</button></div>${!c.active?'<div class="notice dangerText"><b>Empresa desactivada.</b> Solo el superadministrador puede consultar esta pantalla.</div>':''}<div class="grid"><div class="card"><span class="muted">Modalidad de stock</span><h3>${c.stockMode==='private'?'Stock propio y oculto':'Stock general compartido'}</h3></div><div class="card"><span class="muted">Estado</span><h3>${c.active?'Activa':'Desactivada'}</h3></div></div><div class="notice">La empresa fue creada correctamente. Sus ubicaciones, usuarios, flota y existencias se pueden incorporar desde Ajustes de administracion.</div></div>`;
+}
+function openLegacyManagedCompany(id){
+  let c=companyRegistry.find(function(row){return row.id===id});if(!c)return;if(!c.active&&!isSuperAdmin())return alert('Esta empresa esta desactivada');
+  if(id==='phelox'){selectPheloxArea();if(!c.active)companies.insertAdjacentHTML('afterbegin','<div class="notice dangerText"><b>Empresa desactivada.</b> Acceso exclusivo del superadministrador.</div>')}
+  else{enter('Transportes El Avion');if(!c.active)mainMenu.insertAdjacentHTML('afterbegin','<div class="notice dangerText"><b>Empresa desactivada.</b> Acceso exclusivo del superadministrador.</div>')}
+}
+const adminSettingsHubBeforeCompanies=adminSettingsHub;
+adminSettingsHub=function(){
+  adminSettingsHubBeforeCompanies();
+  if(isSuperAdmin()){let grid=adminBox.querySelector('.grid');if(grid)grid.insertAdjacentHTML('beforeend',`<div class="card" onclick="adminCompanies()">${cardIcon('settings')}<h2>Empresas</h2><span class="muted">Crear, editar, logos, stock y estado</span></div>`)}
+};
+const adminUserFormBeforeAdminRoles=adminUserForm;
+adminUserForm=function(id=''){
+  let result=adminUserFormBeforeAdminRoles(id),select=document.getElementById('uRole');if(!select)return result;
+  Array.from(select.options).filter(function(o){return o.value==='Administrador'}).forEach(function(o){o.remove()});
+  if(isSuperAdmin()){select.insertAdjacentHTML('afterbegin','<option>Administrador general</option><option>Superadministrador</option>');let u=users.find(function(row){return row.id===id});if(u)select.value=u.role}
+  return result;
+};
+const readUserFormBeforeAdminRoles=readUserForm;
+readUserForm=function(oldId=''){
+  let selectedRole=document.getElementById('uRole')?.value||'',existing=users.find(function(u){return u.id===oldId});
+  if(['Superadministrador','Administrador general'].includes(selectedRole)&&!isSuperAdmin())return alert('Solo el superadministrador puede asignar roles de administracion');
+  if(['Superadministrador','Administrador general'].includes(existing?.role)&&!isSuperAdmin())return alert('Solo el superadministrador puede editar administradores');
+  let data=readUserFormBeforeAdminRoles(oldId);if(!data)return data;
+  if(['Superadministrador','Administrador general'].includes(selectedRole)){data.role=selectedRole;data.perms={all:true};data.locations=fullAdminLocations();data.vehiclesAll={'Phelox Ltda':true,'Transportes El Avion':true};data.vehicles={'Phelox Ltda':vehicleIdsForCompany('Phelox Ltda'),'Transportes El Avion':vehicleIdsForCompany('Transportes El Avion')}}
+  return data;
+};
+const deleteUserBeforeAdminRoles=deleteUser;
+deleteUser=function(id){let target=users.find(function(u){return u.id===id});if(['Superadministrador','Administrador general'].includes(target?.role)&&!isSuperAdmin())return alert('Solo el superadministrador puede borrar administradores');if(id==='juan')return alert('Juan es el superadministrador principal y no puede borrarse');return deleteUserBeforeAdminRoles(id)};
+const renderCompanyScreenBeforeManagedCompanies=renderCompanyScreen;
+renderCompanyScreen=function(){
+  renderCompanyScreenBeforeManagedCompanies();let grid=companies.querySelector('.grid');if(!grid)return;
+  companyRegistry.filter(function(c){return !!c.systemKey}).forEach(function(c){
+    let selector=c.id==='phelox'?'.logoCard[onclick*="selectPheloxArea"]':'.logoCard[onclick*="Transportes El Avion"]',card=grid.querySelector(selector);if(!card)return;
+    if(!c.active&&!isSuperAdmin()){card.remove();return}
+    card.setAttribute('onclick',`openLegacyManagedCompany('${c.id}')`);let img=card.querySelector('img');if(img&&c.logo)img.src=c.logo;
+    if(!c.active)card.insertAdjacentHTML('beforeend','<span class="badge rejected">Empresa desactivada</span>');
+  });
+  companyRegistry.filter(function(c){return !c.systemKey&&(c.active||isSuperAdmin())}).forEach(function(c){grid.insertAdjacentHTML('beforeend',`<div class="card logoCard" onclick="openManagedCompanyInfo('${c.id}')">${c.logo?`<img src="${c.logo}" alt="${val(c.name)}">`:cardIcon('settings')}<h2>${c.name}</h2>${!c.active?'<span class="badge rejected">Empresa desactivada</span>':''}</div>`)});
+};
+loadCompanyRegistry();ensureAdministratorRoles();
+
+function isAdministrativeRecipient(user){return !!user&&['Administrador','Administrador general','Superadministrador'].includes(user.role)}
+function repairRequesterNeedsLocalRecipient(){return currentUser?.role==='Chofer'||currentUser?.role==='Mecanico'}
+function repairRequestSelectedContext(){
+  let value=document.getElementById('rrVehicle')?.value||'',vehicle=typeof repairRequestVehicleFromValue==='function'?repairRequestVehicleFromValue(value):null;
+  if(!vehicle)vehicle=[...pheloxFleet,...avionFleet].find(function(v){return v.plate===value});
+  let vehicleCompany=vehicle?(avionFleet.includes(vehicle)?'Transportes El Avion':'Phelox Ltda'):company,location=vehicle?vehicleSubLocationText(vehicle):((currentUser?.locations?.[vehicleCompany]||[])[0]||'');
+  return {vehicle:vehicle,company:vehicleCompany,location:location};
+}
+function repairRecipientInLocation(user,context){
+  if(!user||user.id===currentUser?.id||!context.location)return false;
+  return (user.locations?.[context.company]||[]).some(function(loc){return norm(loc)===norm(context.location)});
+}
+function renderLocalRepairRecipients(){
+  if(!repairRequesterNeedsLocalRecipient())return;
+  let select=document.getElementById('rrTo'),context=repairRequestSelectedContext();if(!select)return;
+  let targets=users.filter(function(u){return !isAdministrativeRecipient(u)&&repairRecipientInLocation(u,context)});
+  select.innerHTML=targets.map(function(u){return `<option value="${u.id}">${u.name} - ${u.role}</option>`}).join('')||'<option value="">No hay personal asignado a esta ubicacion</option>';
+  let label=select.closest('label'),form=select.closest('.form');
+  if(!label){label=document.createElement('label');select.parentNode.insertBefore(label,select);label.appendChild(select)}
+  if(label&&!label.querySelector('.repairLocationHint'))label.insertAdjacentHTML('afterbegin',`<span class="repairLocationHint">Enviar a personal de ${context.location||'tu ubicacion'}</span>`);
+  else{let hint=label?.querySelector('.repairLocationHint');if(hint)hint.textContent=`Enviar a personal de ${context.location||'tu ubicacion'}`}
+  if(form&&!document.getElementById('repairLocalOnlyNotice'))form.insertAdjacentHTML('afterbegin',`<div id="repairLocalOnlyNotice" class="wide notice"><b>Destinatarios del mismo frente:</b> como ${currentUser.role.toLowerCase()}, solo podes solicitar la reparacion a personal asignado a la ubicacion del vehiculo.</div>`);
+}
+const repairRequestFormBeforeLocalRecipients=repairRequestForm;
+repairRequestForm=function(){
+  let result=repairRequestFormBeforeLocalRecipients();
+  let recipientSelect=document.getElementById('rrTo');
+  if(recipientSelect)Array.from(recipientSelect.options).forEach(function(option){let user=users.find(function(u){return u.id===option.value});if(isAdministrativeRecipient(user))option.remove()});
+  if(repairRequesterNeedsLocalRecipient()){
+    let vehicleSelect=document.getElementById('rrVehicle');if(vehicleSelect)vehicleSelect.addEventListener('change',function(){setTimeout(renderLocalRepairRecipients,0)});
+    renderLocalRepairRecipients();
+  }
+  return result;
+};
+const filterRepairRequestVehiclesBeforeLocalRecipients=filterRepairRequestVehicles;
+filterRepairRequestVehicles=function(){let result=filterRepairRequestVehiclesBeforeLocalRecipients();if(repairRequesterNeedsLocalRecipient())renderLocalRepairRecipients();return result};
+const saveRepairRequestBeforeLocalRecipients=saveRepairRequest;
+saveRepairRequest=function(){
+  let selectedTarget=users.find(function(u){return u.id===document.getElementById('rrTo')?.value});
+  if(isAdministrativeRecipient(selectedTarget))return alert('Los administradores y el superadministrador no pueden recibir solicitudes de reparacion');
+  if(repairRequesterNeedsLocalRecipient()){
+    let context=repairRequestSelectedContext(),target=selectedTarget;
+    if(!target)return alert('No hay personal disponible en la ubicacion seleccionada');
+    if(!repairRecipientInLocation(target,context))return alert('La solicitud solo puede enviarse a personal de '+(context.location||'la misma ubicacion'));
+  }
+  return saveRepairRequestBeforeLocalRecipients();
+};
+const stockOrderRecipientUsersBeforeAdminExclusion=stockOrderRecipientUsers;
+stockOrderRecipientUsers=function(){return stockOrderRecipientUsersBeforeAdminExclusion().filter(function(u){return !isAdministrativeRecipient(u)})};
+const saveStockRequestBeforeAdminRecipientExclusion=saveStockRequest;
+saveStockRequest=function(){
+  let recipientName=(document.getElementById('srFrom')?.value||'').trim(),recipient=users.find(function(u){return norm(u.name)===norm(recipientName)||norm(u.id)===norm(recipientName)});
+  if(isAdministrativeRecipient(recipient))return alert('Los administradores y el superadministrador no pueden recibir solicitudes de stock');
+  return saveStockRequestBeforeAdminRecipientExclusion();
+};
+function reinforceMaintenanceUnsavedChanges(){
+  let saveButton=document.getElementById('saveMaintenanceButton')||Array.from(content.querySelectorAll('button')).find(function(button){return norm(button.textContent).includes('guardar mantenimiento')});
+  if(!saveButton)return;
+  setTimeout(function(){
+    trackChanges();
+    let panel=saveButton.closest('.panel')||content;
+    panel.querySelectorAll('input,select,textarea').forEach(function(field){
+      field.addEventListener('input',markDirty);
+      field.addEventListener('change',markDirty);
+    });
+    panel.addEventListener('click',function(event){
+      let text=norm(event.target.closest('button')?.textContent||'');
+      if(text.includes('agregar repuesto')||text.includes('agregar filtros')||text.includes('quitar')||text.includes('borrar repuesto'))markDirty();
+    });
+  },0);
+}
+const serviceFormBeforeUnsavedProtection=serviceForm;
+serviceForm=function(){let result=serviceFormBeforeUnsavedProtection();reinforceMaintenanceUnsavedChanges();return result};
 
 cardIcon=function(name){
   const emojis={wrench:'🔧',truck:'🚛',box:'📦',chart:'📊',settings:'⚙️',tire:'🛞',edit:'✏️',trash:'🗑️',plus:'➕',in:'📥',out:'📤',move:'🔄',history:'📚',user:'👷',pin:'🌱',eye:'👁️'};
