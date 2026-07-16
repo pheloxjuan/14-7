@@ -4189,6 +4189,198 @@ function reinforceMaintenanceUnsavedChanges(){
 const serviceFormBeforeUnsavedProtection=serviceForm;
 serviceForm=function(){let result=serviceFormBeforeUnsavedProtection();reinforceMaintenanceUnsavedChanges();return result};
 
+const backupAuditKey=dataKey+'_backup_audit_v1';
+let backupAudit=[];try{backupAudit=JSON.parse(localStorage.getItem(backupAuditKey)||'[]')}catch(e){backupAudit=[]}
+function saveBackupAudit(){localStorage.setItem(backupAuditKey,JSON.stringify(backupAudit.slice(0,100)))}
+function addBackupAudit(action,detail){backupAudit.unshift({date:now(),user:activeUserName()||'Sistema',action:action,detail:detail||''});saveBackupAudit()}
+function unifiedBackupData(){
+  let data=appDataSnapshot();
+  return {...data,backupFormat:'gestion-flota-completo',backupVersion:1,createdAt:new Date().toISOString(),createdBy:activeUserName()||'Sistema',companyRegistry:companyRegistry.map(function(c){return {...c}}),locationRoles:typeof locationRoles!=='undefined'?locationRoles:{},backupAudit:backupAudit.slice()};
+}
+function backupCounts(data){
+  return {empresas:(data.companyRegistry||[]).length,usuarios:(data.users||[]).length,vehiculos:(data.pheloxFleet||[]).length+(data.avionFleet||[]).length,articulos:(data.stock||[]).length,movimientos:(data.moves||[]).length,pedidos:(data.stockRequests||[]).length,mantenimientos:(data.hist||[]).length,fotos:(data.stock||[]).reduce(function(sum,i){return sum+stockPhotos(i).length},0)};
+}
+function backupCountsHtml(data){let c=backupCounts(data);return `<div class="grid">${Object.entries(c).map(function(entry){return `<div class="card"><span class="muted">${entry[0]}</span><div class="metric">${entry[1]}</div></div>`}).join('')}</div>`}
+function downloadTextFile(name,text,type='application/json'){
+  let blob=new Blob([text],{type:type}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
+}
+function backupFileName(prefix='respaldo-completo'){let d=new Date(),stamp=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;return `${prefix}_${stamp}.json`}
+function downloadUnifiedBackup(automatic=false){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar respaldos completos');
+  let data=unifiedBackupData();downloadTextFile(backupFileName(automatic?'respaldo-automatico':'respaldo-completo'),JSON.stringify(data,null,2));addBackupAudit(automatic?'Respaldo automatico':'Respaldo descargado',JSON.stringify(backupCounts(data)));if(!automatic)success('Respaldo completo descargado correctamente.');
+}
+function validateUnifiedBackup(data){
+  let errors=[],warnings=[];if(!data||typeof data!=='object')errors.push('El archivo no contiene datos validos');
+  if(data?.backupFormat!=='gestion-flota-completo')warnings.push('El archivo es anterior al nuevo formato unificado');
+  ['users','stock','moves','locations','pheloxFleet','avionFleet','hist','stockRequests'].forEach(function(key){if(!Array.isArray(data?.[key])&&key!=='locations')errors.push('Falta la seccion '+key)});
+  if(!data?.locations||typeof data.locations!=='object')errors.push('Faltan las ubicaciones');
+  let userIds=new Set(),plates=new Set(),companyIds=new Set();(data?.users||[]).forEach(function(u){if(!u.id)errors.push('Hay un usuario sin identificador');else if(userIds.has(u.id))errors.push('Usuario duplicado: '+u.id);else userIds.add(u.id)});
+  [...(data?.pheloxFleet||[]),...(data?.avionFleet||[])].forEach(function(v){if(!v.plate)warnings.push('Hay un vehiculo sin matricula');else if(plates.has(v.plate))errors.push('Matricula duplicada: '+v.plate);else plates.add(v.plate)});
+  (data?.companyRegistry||[]).forEach(function(c){if(!c.id||!c.name)errors.push('Hay una empresa incompleta');else if(companyIds.has(c.id))errors.push('Empresa duplicada: '+c.id);else companyIds.add(c.id)});
+  (data?.stock||[]).forEach(function(i){if(!i.code)errors.push('Hay un articulo sin codigo');if(!i.loc)warnings.push(`Articulo ${i.code||'-'} sin ubicacion`);(i.compatibleArticleCodes||[]).forEach(function(code){if(!(data.stock||[]).some(function(other){return String(other.code).toUpperCase()===String(code).toUpperCase()}))warnings.push(`Compatibilidad inexistente: ${i.code} -> ${code}`)})});
+  (data?.hist||[]).forEach(function(h){if(h.plate&&!plates.has(h.plate))warnings.push('Mantenimiento asociado a vehiculo no encontrado: '+h.plate)});
+  return {ok:errors.length===0,errors:[...new Set(errors)],warnings:[...new Set(warnings)],counts:backupCounts(data)};
+}
+async function inspectUnifiedBackupFile(input){
+  let file=input?.files?.[0],box=document.getElementById('backupValidationBox');if(!file||!box)return;let data;
+  try{data=JSON.parse(await file.text())}catch(e){window.pendingUnifiedBackup=null;box.innerHTML='<div class="notice dangerText"><b>Archivo invalido:</b> no se pudo leer como JSON.</div>';return}
+  let result=validateUnifiedBackup(data);window.pendingUnifiedBackup=result.ok?data:null;
+  box.innerHTML=`<div class="notice ${result.ok?'':'dangerText'}"><b>${result.ok?'Respaldo valido':'El respaldo no se puede restaurar'}</b><div>Version: ${data.backupVersion||'anterior'} · Creado: ${data.createdAt||data.exportedAt||'-'} · Por: ${data.createdBy||'-'}</div></div>${backupCountsHtml(data)}${result.errors.length?`<div class="notice dangerText"><b>Errores:</b><ul>${result.errors.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${result.warnings.length?`<div class="notice"><b>Advertencias:</b><ul>${result.warnings.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${result.ok?'<button class="red wide" onclick="confirmUnifiedRestore()">Restaurar este respaldo</button>':''}`;
+  addBackupAudit('Respaldo probado',`${file.name}: ${result.ok?'correcto':'con errores'}`);
+}
+function confirmUnifiedRestore(){
+  if(!isSuperAdmin()||!window.pendingUnifiedBackup)return alert('Primero selecciona y valida un respaldo');
+  modalConfirmAction=restoreUnifiedBackup;
+  modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">Restaurar respaldo completo</div><p>Se descargara primero una copia automatica del estado actual. Luego se reemplazaran empresas, usuarios, stock, flota, historiales, pedidos y configuraciones.</p><div class="modalActions"><button class="ghost" onclick="closeModal()">Cancelar</button><button class="red" onclick="runModalConfirm()">Crear copia y restaurar</button></div></div></div>`;
+}
+function restoreUnifiedBackup(){
+  let data=window.pendingUnifiedBackup,result=validateUnifiedBackup(data);if(!result.ok)return alert('El respaldo dejo de ser valido');
+  downloadUnifiedBackup(true);applyAppDataSnapshot(data);
+  if(Array.isArray(data.companyRegistry)){companyRegistry=data.companyRegistry.map(function(c){return {...c}});saveCompanyRegistry();companyRegistry.forEach(function(c){if(c.systemKey&&c.logo)logos[c.systemKey]=c.logo})}
+  if(data.locationRoles&&typeof locationRoles!=='undefined'){locationRoles={...data.locationRoles}}
+  if(Array.isArray(data.backupAudit))backupAudit=data.backupAudit.slice();addBackupAudit('Respaldo restaurado',`Version ${data.backupVersion||'anterior'} de ${data.createdAt||data.exportedAt||'-'}`);
+  saveData();renderLoginUsers();window.pendingUnifiedBackup=null;clearChanges();success('Respaldo restaurado correctamente. Cerra la sesion y volve a ingresar para aplicar todos los permisos recuperados.');
+}
+function csvCell(value){let text=String(value??'').replace(/"/g,'""');return `"${text}"`}
+function csvDownload(name,headers,rows){let text='\ufeff'+headers.map(csvCell).join(';')+'\r\n'+rows.map(function(row){return row.map(csvCell).join(';')}).join('\r\n');downloadTextFile(name+'.csv',text,'text/csv;charset=utf-8');addBackupAudit('Exportacion CSV',name)}
+function exportModuleCsv(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede realizar exportaciones generales');
+  let type=document.getElementById('backupCsvModule')?.value||'stock';
+  if(type==='stock')csvDownload('stock',['Codigo','Articulo','Tipo','Marca','Modelo','Ubicacion','Cantidad','Ideal','Minimo','Precio','Moneda'],stock.map(function(i){return [i.code,i.part,i.type,i.brand,i.model,i.loc,i.qty,i.ideal,i.min,i.price,i.currency||'UYU']}));
+  if(type==='flota')csvDownload('flota',['Empresa','Tipo','Marca','Modelo','Matricula','Frente','Ano','Ejes'],[...pheloxFleet.map(function(v){return ['Phelox Ltda',v.type,v.brand,v.model,v.plate,vehicleSubLocationText(v),v.year||'',v.axles||'']}),...avionFleet.map(function(v){return ['Transportes El Avion',v.type,v.brand,v.model,v.plate,vehicleSubLocationText(v),v.year||'',v.axles||'']})]);
+  if(type==='movimientos')csvDownload('movimientos',['Fecha','Usuario','Accion','Codigo','Vehiculo','Cantidad','Desde','Ubicacion','Descripcion'],moves.map(function(m){return [m.date,m.user,m.action,m.code,m.vehicle||'',m.qty,m.fromLoc||'',m.loc||'',m.desc||'']}));
+  if(type==='pedidos')csvDownload('pedidos',['Pedido','Fecha','Empresa','Solicita','Origen','Destino','Estado','Articulos'],stockRequests.map(function(r){return [r.id,r.date,r.company,r.user,r.fromLoc,r.toLoc,r.status,orderQtyText(r).replace(/<[^>]+>/g,' ')]}));
+  if(type==='mantenimientos')csvDownload('mantenimientos',['Fecha','Empresa','Vehiculo','Matricula','Km','Trabajo','Usuario','Ubicacion','Costo'],hist.map(function(h){return [h.date,h.company||h.vehicleCompany||'',h.vehicle,h.plate,h.km,h.job,h.user,h.location||h.partsLocation||'',h.costText||h.cost||0]}));
+  if(type==='usuarios')csvDownload('usuarios',['Usuario','Nombre','Rol','Phelox','Transportes El Avion'],users.map(function(u){return [u.id,u.name,u.role,(u.locations?.['Phelox Ltda']||[]).join(' / '),(u.locations?.['Transportes El Avion']||[]).join(' / ')]}));
+}
+function superAdminBackupCenter(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede entrar al Centro de respaldos');
+  let current=unifiedBackupData();
+  adminBox.innerHTML=`<div class="panel"><div class="top"><div><h3>Centro de respaldos</h3><span class="muted">Copias completas, validacion, restauracion y exportaciones.</span></div><button class="ghost" onclick="adminSettingsHub()">Volver a ajustes</button></div><div class="notice"><b>Estado actual incluido en el respaldo</b></div>${backupCountsHtml(current)}<div class="grid"><div class="card" onclick="downloadUnifiedBackup()">${cardIcon('in')}<h2>Descargar respaldo completo</h2><span class="muted">Incluye datos, empresas, logos, fotos, roles y configuraciones.</span></div><div class="card"><h2>Probar o restaurar respaldo</h2><input type="file" accept=".json,application/json" onchange="inspectUnifiedBackupFile(this)"><span class="muted">Primero se valida; no modifica datos al seleccionar el archivo.</span></div><div class="card"><h2>Exportar tabla CSV</h2><select id="backupCsvModule"><option value="stock">Stock</option><option value="flota">Flota</option><option value="movimientos">Movimientos</option><option value="pedidos">Pedidos</option><option value="mantenimientos">Mantenimientos</option><option value="usuarios">Usuarios</option></select><button class="primary" onclick="exportModuleCsv()">Descargar CSV</button></div></div><div id="backupValidationBox"></div><div class="panel"><h3>Actividad de respaldos</h3><div class="tableScroll"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Accion</th><th>Detalle</th></tr></thead><tbody>${backupAudit.slice(0,30).map(function(a){return `<tr><td>${a.date}</td><td>${a.user}</td><td><b>${a.action}</b></td><td>${a.detail}</td></tr>`}).join('')||'<tr><td colspan="4">Todavia no hay operaciones registradas.</td></tr>'}</tbody></table></div></div></div>`;
+}
+const adminSettingsHubBeforeBackupCenter=adminSettingsHub;
+adminSettingsHub=function(){
+  adminSettingsHubBeforeBackupCenter();
+  if(isSuperAdmin()){let grid=adminBox.querySelector('.grid');if(grid)grid.insertAdjacentHTML('beforeend',`<div class="card" onclick="superAdminBackupCenter()">${cardIcon('history')}<h2>Centro de respaldos</h2><span class="muted">Crear, probar, restaurar y exportar datos</span></div>`)}
+};
+function ensureXlsxLibrary(){
+  if(window.XLSX)return Promise.resolve(window.XLSX);
+  return new Promise(function(resolve,reject){
+    let existing=document.getElementById('sheetJsLibrary');if(existing){existing.addEventListener('load',function(){resolve(window.XLSX)});existing.addEventListener('error',reject);return}
+    let script=document.createElement('script');script.id='sheetJsLibrary';script.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';script.onload=function(){resolve(window.XLSX)};script.onerror=function(){reject(new Error('No se pudo cargar el lector de Excel'))};document.head.appendChild(script);
+  });
+}
+async function downloadStockExcelTemplate(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar plantillas de importacion');
+  try{
+    let XLSX=await ensureXlsxLibrary(),rows=[{Codigo:'FIL-001',Articulo:'Filtro de ejemplo',Tipo:'Filtro',Marca:'Marca',Modelo:'Modelo',Ubicacion:'DEPOSITO GENERAL',Cantidad:10,Ideal:20,Minimo:5,Precio:0,Moneda:'UYU'}],sheet=XLSX.utils.json_to_sheet(rows),book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,sheet,'Stock');XLSX.writeFile(book,'plantilla_importacion_stock.xlsx');addBackupAudit('Plantilla Excel descargada','Stock');
+  }catch(e){alert('No se pudo preparar la plantilla de Excel. Verifica la conexion a internet.')}
+}
+function normalizedExcelRow(raw,index){
+  let values={};Object.entries(raw||{}).forEach(function(entry){values[norm(entry[0]).replace(/[^a-z0-9]/g,'')]=entry[1]});
+  let get=function(){for(let key of arguments){let normalized=norm(key).replace(/[^a-z0-9]/g,'');if(values[normalized]!==undefined&&values[normalized]!=='')return values[normalized]}return ''};
+  return {row:index+2,code:String(get('codigo','code')).trim().toUpperCase(),part:String(get('articulo','producto','repuesto','nombre')).trim(),type:String(get('tipo','tipoarticulo')).trim(),brand:String(get('marca')).trim(),model:String(get('modelo')).trim(),loc:String(get('ubicacion','frente','deposito')).trim(),qty:Number(get('cantidad','stock','actual')),ideal:Number(get('ideal','stockideal'))||0,min:Number(get('minimo','min','critico'))||0,price:Number(get('precio','preciounitario'))||0,currency:String(get('moneda','currency')||'UYU').trim().toUpperCase()};
+}
+function validateStockExcelRows(rows){
+  let valid=[],errors=[],warnings=[],seen=new Set();rows.forEach(function(r){let missing=[];if(!r.code)missing.push('Codigo');if(!r.part)missing.push('Articulo');if(!r.loc)missing.push('Ubicacion');if(!Number.isFinite(r.qty)||r.qty<0)missing.push('Cantidad valida');let key=r.code+'|'+norm(r.loc);if(seen.has(key))missing.push('Codigo y ubicacion duplicados en el archivo');seen.add(key);if(missing.length)errors.push(`Fila ${r.row}: ${missing.join(', ')}`);else{if(!Object.values(locations).flat().some(function(l){return norm(l)===norm(r.loc)}))warnings.push(`Fila ${r.row}: la ubicacion ${r.loc} no existe y sera agregada a ${company}`);valid.push(r)}});return {valid:valid,errors:errors,warnings:warnings}
+}
+async function inspectStockExcel(input){
+  let file=input?.files?.[0],box=document.getElementById('stockExcelPreview');if(!file||!box)return;box.innerHTML='<div class="notice">Leyendo archivo...</div>';
+  try{
+    let destinationValue=document.getElementById('stockExcelDestination')?.value||'',destinationParts=destinationValue.split('|||'),destinationCompany=destinationParts[0]||company,destinationLocation=destinationParts[1]||'',XLSX=await ensureXlsxLibrary(),buffer=await file.arrayBuffer(),book=XLSX.read(buffer),sheet=book.Sheets[book.SheetNames[0]],raw=XLSX.utils.sheet_to_json(sheet,{defval:''}),parsed=raw.map(normalizedExcelRow);
+    if(destinationLocation)parsed.forEach(function(r){r.loc=destinationLocation});
+    let checked=validateStockExcelRows(parsed),existing=checked.valid.filter(function(r){return stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)})}),created=checked.valid.filter(function(r){return !stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)})});
+    window.pendingStockExcelImport=checked.errors.length?null:{fileName:file.name,rows:checked.valid,destinationCompany:destinationCompany,destinationLocation:destinationLocation};
+    box.innerHTML=`<div class="grid"><div class="card"><span class="muted">Filas validas</span><div class="metric">${checked.valid.length}</div></div><div class="card"><span class="muted">Articulos nuevos</span><div class="metric">${created.length}</div></div><div class="card"><span class="muted">Articulos a actualizar</span><div class="metric">${existing.length}</div></div><div class="card"><span class="muted">Errores</span><div class="metric">${checked.errors.length}</div></div></div>${checked.errors.length?`<div class="notice dangerText"><b>Errores que impiden importar:</b><ul>${checked.errors.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.warnings.length?`<div class="notice"><b>Advertencias:</b><ul>${checked.warnings.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.valid.length?`<div class="tableScroll"><table><thead><tr><th>Fila</th><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Cantidad</th><th>Resultado</th></tr></thead><tbody>${checked.valid.slice(0,100).map(function(r){let exists=stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)});return `<tr><td>${r.row}</td><td><b>${r.code}</b></td><td>${r.part}</td><td>${r.loc}</td><td>${r.qty}</td><td>${exists?'Actualizar':'Crear'}</td></tr>`}).join('')}</tbody></table></div>`:''}${window.pendingStockExcelImport?'<button class="primary wide" onclick="confirmStockExcelImport()">Confirmar importacion</button>':''}`;
+    addBackupAudit('Excel de stock probado',`${file.name}: ${checked.valid.length} validas, ${checked.errors.length} errores`);
+  }catch(e){window.pendingStockExcelImport=null;box.innerHTML='<div class="notice dangerText"><b>No se pudo leer el archivo.</b> Verifica que sea Excel o CSV valido y que exista conexion para cargar el lector.</div>'}
+}
+function confirmStockExcelImport(){
+  if(!isSuperAdmin()||!window.pendingStockExcelImport)return alert('Primero selecciona y valida un archivo Excel');
+  let mode=document.getElementById('stockExcelQtyMode')?.value||'replace';modalConfirmAction=function(){applyStockExcelImport(mode)};
+  modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">Importar stock desde Excel</div><p>Antes de modificar el stock se descargara un respaldo automatico. Se procesaran <b>${window.pendingStockExcelImport.rows.length}</b> filas con modalidad <b>${mode==='add'?'sumar cantidades':'reemplazar cantidades'}</b>.</p><div class="modalActions"><button class="ghost" onclick="closeModal()">Cancelar</button><button class="primary" onclick="runModalConfirm()">Respaldar e importar</button></div></div></div>`;
+}
+function applyStockExcelImport(mode){
+  let pending=window.pendingStockExcelImport;if(!pending)return;downloadUnifiedBackup(true);let created=0,updated=0;
+  pending.rows.forEach(function(r){let loc=pending.destinationLocation||Object.values(locations).flat().find(function(l){return norm(l)===norm(r.loc)})||r.loc,targetCompany=pending.destinationCompany||company;if(!Object.values(locations).flat().some(function(l){return norm(l)===norm(loc)})){locations[targetCompany]=locations[targetCompany]||[];locations[targetCompany].push(loc)}
+    let item=stock.find(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(loc)});
+    if(item){item.part=r.part||item.part;item.type=r.type||item.type;item.brand=r.brand||item.brand;item.model=r.model||item.model;item.qty=mode==='add'?(Number(item.qty)||0)+r.qty:r.qty;item.ideal=r.ideal;item.min=r.min;item.price=r.price;item.currency=r.currency||item.currency||'UYU';updated++}
+    else{stock.push({code:r.code,part:r.part,type:r.type||'Articulo',brand:r.brand,model:r.model,loc:loc,qty:r.qty,ideal:r.ideal,min:r.min,price:r.price,currency:r.currency||'UYU',photos:[],compatibleArticleCodes:[]});created++}
+  });saveData();addBackupAudit('Stock importado desde Excel',`${pending.fileName}: ${created} creados, ${updated} actualizados, modo ${mode}`);window.pendingStockExcelImport=null;clearChanges();success(`Importacion completada. Nuevos: ${created}. Actualizados: ${updated}.`);superAdminBackupCenter();
+}
+async function downloadMaintenanceExcelTemplate(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar plantillas de importacion');
+  try{let XLSX=await ensureXlsxLibrary(),rows=[{Fecha:'16/07/2026',Matricula:'SAB 1234',Kilometraje:125000,Trabajo:'Servicio de motor',Usuario:'Mecanico',Ubicacion:'PH1',Costo:0,Moneda:'UYU',Comentarios:'Observaciones del mantenimiento'}],sheet=XLSX.utils.json_to_sheet(rows),book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,sheet,'Mantenimientos');XLSX.writeFile(book,'plantilla_importacion_mantenimientos.xlsx');addBackupAudit('Plantilla Excel descargada','Mantenimientos')}catch(e){alert('No se pudo preparar la plantilla. Verifica la conexion a internet.')}
+}
+function excelMaintenanceDate(value){
+  if(value instanceof Date)return `${pad(value.getDate())}/${pad(value.getMonth()+1)}/${value.getFullYear()}`;
+  if(typeof value==='number'&&window.XLSX?.SSF){let d=XLSX.SSF.parse_date_code(value);if(d)return `${pad(d.d)}/${pad(d.m)}/${d.y}`}
+  let text=String(value||'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(text)){let p=text.slice(0,10).split('-');return `${p[2]}/${p[1]}/${p[0]}`}return text;
+}
+function normalizedMaintenanceExcelRow(raw,index){
+  let values={};Object.entries(raw||{}).forEach(function(entry){values[norm(entry[0]).replace(/[^a-z0-9]/g,'')]=entry[1]});let get=function(){for(let key of arguments){let k=norm(key).replace(/[^a-z0-9]/g,'');if(values[k]!==undefined&&values[k]!=='')return values[k]}return ''};
+  return {row:index+2,date:excelMaintenanceDate(get('fecha','date')),plate:String(get('matricula','patente','plate','vehiculo')).trim().toUpperCase(),km:Number(get('kilometraje','km')),job:String(get('trabajo','servicio','mantenimiento','detalle')).trim(),user:String(get('usuario','mecanico','responsable')||'Importacion Excel').trim(),location:String(get('ubicacion','frente','lugar')).trim(),cost:Number(get('costo','importe','gasto'))||0,currency:String(get('moneda','currency')||'UYU').trim().toUpperCase(),notes:String(get('comentarios','observaciones','notas')).trim()};
+}
+function validateMaintenanceExcelRows(rows,companyFilter){
+  let valid=[],errors=[],warnings=[],seen=new Set(),fleet=companyFilter==='Phelox Ltda'?pheloxFleet:companyFilter==='Transportes El Avion'?avionFleet:[...pheloxFleet,...avionFleet];
+  rows.forEach(function(r){let missing=[],vehicle=fleet.find(function(v){return String(v.plate).toUpperCase()===r.plate});if(!r.date)missing.push('Fecha');if(!r.plate)missing.push('Matricula');else if(!vehicle)missing.push('Matricula no encontrada');if(!Number.isFinite(r.km)||r.km<0)missing.push('Kilometraje valido');if(!r.job)missing.push('Trabajo');let key=norm(`${r.date}|${r.plate}|${r.km}|${r.job}`);if(seen.has(key))missing.push('Mantenimiento duplicado en el archivo');seen.add(key);let exists=hist.some(function(h){return norm(`${h.date}|${h.plate}|${h.km}|${h.job}`)===key});if(exists)warnings.push(`Fila ${r.row}: ya existe y no se importara`);if(missing.length)errors.push(`Fila ${r.row}: ${missing.join(', ')}`);else if(!exists)valid.push({...r,vehicle:vehicle,company:avionFleet.includes(vehicle)?'Transportes El Avion':'Phelox Ltda'})});return {valid:valid,errors:errors,warnings:warnings}
+}
+async function inspectMaintenanceExcel(input){
+  let file=input?.files?.[0],box=document.getElementById('maintenanceExcelPreview');if(!file||!box)return;box.innerHTML='<div class="notice">Leyendo archivo...</div>';
+  try{let companyFilter=document.getElementById('maintenanceExcelCompany')?.value||'',XLSX=await ensureXlsxLibrary(),book=XLSX.read(await file.arrayBuffer(),{cellDates:true}),sheet=book.Sheets[book.SheetNames[0]],raw=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:true}),checked=validateMaintenanceExcelRows(raw.map(normalizedMaintenanceExcelRow),companyFilter);window.pendingMaintenanceExcelImport=checked.errors.length?null:{fileName:file.name,rows:checked.valid};
+    box.innerHTML=`<div class="grid"><div class="card"><span class="muted">Mantenimientos validos</span><div class="metric">${checked.valid.length}</div></div><div class="card"><span class="muted">Errores</span><div class="metric">${checked.errors.length}</div></div><div class="card"><span class="muted">Duplicados omitidos</span><div class="metric">${checked.warnings.length}</div></div></div>${checked.errors.length?`<div class="notice dangerText"><b>Errores:</b><ul>${checked.errors.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.warnings.length?`<div class="notice"><b>Advertencias:</b><ul>${checked.warnings.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.valid.length?`<div class="tableScroll"><table><thead><tr><th>Fila</th><th>Fecha</th><th>Empresa</th><th>Vehiculo</th><th>Km</th><th>Trabajo</th><th>Costo</th></tr></thead><tbody>${checked.valid.slice(0,100).map(function(r){return `<tr><td>${r.row}</td><td>${r.date}</td><td>${r.company}</td><td>${vehicleLabel(r.vehicle)}</td><td>${r.km}</td><td>${r.job}</td><td>${moneyCurrency(r.cost,r.currency)}</td></tr>`}).join('')}</tbody></table></div>`:''}${window.pendingMaintenanceExcelImport?'<button class="primary wide" onclick="confirmMaintenanceExcelImport()">Confirmar importacion</button>':''}`;addBackupAudit('Excel de mantenimientos probado',`${file.name}: ${checked.valid.length} validos, ${checked.errors.length} errores`)}
+  catch(e){window.pendingMaintenanceExcelImport=null;box.innerHTML='<div class="notice dangerText"><b>No se pudo leer el archivo de mantenimientos.</b> Verifica el formato y la conexion.</div>'}
+}
+function confirmMaintenanceExcelImport(){
+  let pending=window.pendingMaintenanceExcelImport;if(!isSuperAdmin()||!pending)return alert('Primero selecciona y valida un archivo');let addCost=document.getElementById('maintenanceExcelAddCost')?.checked!==false;modalConfirmAction=function(){applyMaintenanceExcelImport(addCost)};
+  modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">Importar mantenimientos</div><p>Se descargara un respaldo automatico antes de importar <b>${pending.rows.length}</b> mantenimientos.${addCost?' Los costos se sumaran al gasto acumulado de cada vehiculo.':''}</p><div class="modalActions"><button class="ghost" onclick="closeModal()">Cancelar</button><button class="primary" onclick="runModalConfirm()">Respaldar e importar</button></div></div></div>`;
+}
+function applyMaintenanceExcelImport(addCost){
+  let pending=window.pendingMaintenanceExcelImport;if(!pending)return;downloadUnifiedBackup(true);pending.rows.forEach(function(r){let costText=r.cost?moneyCurrency(r.cost,r.currency):'',entry={id:'H-IMP-'+Date.now()+'-'+r.row,plate:r.plate,vehicle:vehicleLabel(r.vehicle),company:r.company,vehicleCompany:r.company,date:r.date,km:r.km,job:r.job,services:[r.job],notes:r.notes,location:r.location||vehicleSubLocationText(r.vehicle),partsLocation:r.location||vehicleSubLocationText(r.vehicle),items:[],user:r.user,cost:r.cost,currency:r.currency,costText:costText,importedFromExcel:true};hist.push(entry);if(addCost&&r.cost){if(r.currency==='USD')r.vehicle.spentUsd=(r.vehicle.spentUsd||0)+r.cost;else r.vehicle.spent=(r.vehicle.spent||0)+r.cost}});saveData();addBackupAudit('Mantenimientos importados desde Excel',`${pending.fileName}: ${pending.rows.length} registros`);window.pendingMaintenanceExcelImport=null;clearChanges();success(`Se importaron ${pending.rows.length} mantenimientos correctamente.`);superAdminBackupCenter();
+}
+const superAdminBackupCenterBeforeExcelImport=superAdminBackupCenter;
+superAdminBackupCenter=function(){
+  superAdminBackupCenterBeforeExcelImport();
+  let csvModule=document.getElementById('backupCsvModule'),csvCard=csvModule?.closest('.card');
+  if(csvModule&&!Array.from(csvModule.options).some(function(o){return o.value==='completo'}))csvModule.insertAdjacentHTML('afterbegin','<option value="completo">CSV completo - todos los datos</option>');
+  if(csvModule&&!Array.from(csvModule.options).some(function(o){return o.value==='consumos'}))csvModule.insertAdjacentHTML('beforeend','<option value="consumos">Consumos</option><option value="ingresos">Ingresos</option>');
+  if(csvCard&&!document.getElementById('backupCsvCompany')){let button=csvCard.querySelector('button');button?.insertAdjacentHTML('beforebegin',`<select id="backupCsvCompany"><option value="">Todas las empresas</option><option>Phelox Ltda</option><option>Transportes El Avion</option></select><select id="backupCsvLocation"><option value="">Todas las ubicaciones</option>${[...new Set(Object.values(locations).flat())].sort().map(function(l){return `<option value="${val(l)}">${l}</option>`}).join('')}</select><label>Desde<input id="backupCsvFrom" type="date"></label><label>Hasta<input id="backupCsvTo" type="date"></label>`)}
+  adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar stock desde Excel</h3><span class="muted">Carga articulos nuevos o actualiza stock existente con vista previa.</span></div><button class="ghost" onclick="downloadStockExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Codigo, Articulo y Cantidad. La columna Ubicacion es obligatoria solamente si elegis "Usar ubicacion indicada en el Excel".<br><span class="muted">Opcionales: Tipo, Marca, Modelo, Ideal, Minimo, Precio y Moneda.</span></div><div class="form"><label>Ubicacion de destino<select id="stockExcelDestination"><option value="">Usar ubicacion indicada en el Excel</option>${Object.entries(locations).map(function(entry){return `<optgroup label="${val(entry[0])}">${entry[1].map(function(l){return `<option value="${val(entry[0]+'|||'+l)}">${l}</option>`}).join('')}</optgroup>`}).join('')}</select></label><label>Como aplicar cantidades<select id="stockExcelQtyMode"><option value="replace">Reemplazar cantidad actual</option><option value="add">Sumar a la cantidad actual</option></select></label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectStockExcel(this)"></label></div><div id="stockExcelPreview"></div></div>`);
+  adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar mantenimientos desde Excel</h3><span class="muted">Carga historiales anteriores por matricula sin consumir stock.</span></div><button class="ghost" onclick="downloadMaintenanceExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Fecha, Matricula, Kilometraje y Trabajo.<br><span class="muted">Opcionales: Usuario, Ubicacion, Costo, Moneda y Comentarios. Los repuestos no se descuentan porque son mantenimientos historicos.</span></div><div class="form"><label>Empresa<select id="maintenanceExcelCompany"><option value="">Detectar por matricula</option><option>Phelox Ltda</option><option>Transportes El Avion</option></select></label><label><input id="maintenanceExcelAddCost" type="checkbox" checked> Sumar costos al gasto del vehiculo</label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectMaintenanceExcel(this)"></label></div><div id="maintenanceExcelPreview"></div></div>`);
+};
+function exportRecordCompany(row){
+  if(row?.company)return row.company;if(row?.vehicleCompany)return row.vehicleCompany;
+  let vehicleText=String(row?.vehicle||''),plate=String(row?.plate||'');if(avionFleet.some(function(v){return v.plate===plate||vehicleText.includes(v.plate)}))return 'Transportes El Avion';if(pheloxFleet.some(function(v){return v.plate===plate||vehicleText.includes(v.plate)}))return 'Phelox Ltda';
+  let loc=row?.loc||row?.location||row?.toLoc||'';let inP=(locations['Phelox Ltda']||[]).some(function(l){return norm(l)===norm(loc)}),inA=(locations['Transportes El Avion']||[]).some(function(l){return norm(l)===norm(loc)});return inP&&!inA?'Phelox Ltda':inA&&!inP?'Transportes El Avion':'';
+}
+function exportRowsFiltered(rows){
+  let comp=document.getElementById('backupCsvCompany')?.value||'',loc=document.getElementById('backupCsvLocation')?.value||'',from=document.getElementById('backupCsvFrom')?.value||'',to=document.getElementById('backupCsvTo')?.value||'';
+  return rows.filter(function(r){let recordLoc=r.loc||r.location||r.toLoc||r.partsLocation||'';return (!comp||exportRecordCompany(r)===comp)&&(!loc||norm(recordLoc)===norm(loc))&&stockDateInRange(r.date,from,to)});
+}
+exportModuleCsv=function(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede realizar exportaciones generales');
+  let type=document.getElementById('backupCsvModule')?.value||'stock',comp=document.getElementById('backupCsvCompany')?.value||'todas',loc=document.getElementById('backupCsvLocation')?.value||'todas',suffix=`${type}_${norm(comp).replace(/ /g,'-')}_${norm(loc).replace(/ /g,'-')}`;
+  if(type==='completo'){
+    let rows=[];
+    companyRegistry.forEach(function(c){rows.push(['Empresa','',c.name,'',c.id,c.active?'Activa':'Desactivada','',0,0,'',c.stockMode,c.systemKey||''])});
+    Object.entries(locations).forEach(function(entry){entry[1].forEach(function(location){rows.push(['Ubicacion','',entry[0],location,location,location,'',0,0,'','Activa',''])})});
+    users.forEach(function(u){rows.push(['Usuario','',Array.from(Object.keys(u.locations||{})).filter(function(c){return (u.locations[c]||[]).length}).join(' / '),(Object.values(u.locations||{}).flat()).join(' / '),u.id,u.name,u.name,0,0,'',u.role,''])});
+    pheloxFleet.forEach(function(v){rows.push(['Vehiculo','', 'Phelox Ltda',vehicleSubLocationText(v),v.plate,`${v.brand} ${v.model}`,'',0,vehicleExpenseUyu(v),'UYU','Activo',v.type||''])});
+    avionFleet.forEach(function(v){rows.push(['Vehiculo','', 'Transportes El Avion',vehicleSubLocationText(v),v.plate,`${v.brand} ${v.model}`,'',0,vehicleExpenseUyu(v),'UYU','Activo',v.type||''])});
+    stock.forEach(function(i){rows.push(['Stock','',exportRecordCompany(i),i.loc,i.code,i.part,'',i.qty,i.price,i.currency||'UYU','',`${i.type||''} ${i.brand||''} ${i.model||''}`])});
+    moves.forEach(function(m){rows.push(['Movimiento',m.date,exportRecordCompany(m),m.loc||'',m.code,itemName(m.code),m.user,m.qty,movementUnitPrice(m),movementCurrency(m),m.action,m.desc||''])});
+    stockRequests.forEach(function(r){rows.push(['Pedido',r.date,r.company,r.toLoc||'',r.id,orderQtyText(r).replace(/<[^>]+>/g,' '),r.user,orderItems(r).reduce(function(sum,i){return sum+(Number(i.qty)||0)},0),0,'',r.status,r.note||''])});
+    hist.forEach(function(h){rows.push(['Mantenimiento',h.date,exportRecordCompany(h),h.location||h.partsLocation||'',h.id||h.plate,h.vehicle||h.plate,h.user,0,h.cost||0,h.currency||'UYU','Realizado',h.job||''])});
+    csvDownload('exportacion_completa_'+todayInput(),['Modulo','Fecha','Empresa','Ubicacion','Codigo o ID','Nombre o detalle','Usuario','Cantidad','Importe','Moneda','Estado o accion','Informacion adicional'],rows);return
+  }
+  if(type==='consumos'||type==='ingresos'||type==='movimientos'){let action=type==='consumos'?'Consumo':type==='ingresos'?'Ingreso':'',rows=exportRowsFiltered(moves.filter(function(m){return !action||m.action===action}));csvDownload(suffix,['Fecha','Empresa','Usuario','Accion','Codigo','Articulo','Vehiculo','Cantidad','Precio','Moneda','Desde','Ubicacion','Descripcion'],rows.map(function(m){let item=movementStockItem(m);return [m.date,exportRecordCompany(m),m.user,m.action,m.code,item?.part||itemName(m.code),m.vehicle||'',m.qty,movementUnitPrice(m),movementCurrency(m),m.fromLoc||'',m.loc||'',m.desc||'']}));return}
+  if(type==='pedidos'){let rows=exportRowsFiltered(stockRequests);csvDownload(suffix,['Pedido','Fecha','Empresa','Solicita','Origen','Destino','Estado','Articulos'],rows.map(function(r){return [r.id,r.date,r.company,r.user,r.fromLoc,r.toLoc,r.status,orderQtyText(r).replace(/<[^>]+>/g,' ')]}));return}
+  if(type==='mantenimientos'){let rows=exportRowsFiltered(hist);csvDownload(suffix,['Fecha','Empresa','Vehiculo','Matricula','Km','Trabajo','Usuario','Ubicacion','Costo'],rows.map(function(h){return [h.date,exportRecordCompany(h),h.vehicle,h.plate,h.km,h.job,h.user,h.location||h.partsLocation||'',h.costText||h.cost||0]}));return}
+  if(type==='flota'){let rows=[...pheloxFleet.map(function(v){return {...v,exportCompany:'Phelox Ltda'}}),...avionFleet.map(function(v){return {...v,exportCompany:'Transportes El Avion'}})].filter(function(v){let companyFilter=document.getElementById('backupCsvCompany')?.value||'',locationFilter=document.getElementById('backupCsvLocation')?.value||'';return (!companyFilter||v.exportCompany===companyFilter)&&(!locationFilter||norm(vehicleSubLocationText(v))===norm(locationFilter))});csvDownload(suffix,['Empresa','Tipo','Marca','Modelo','Matricula','Frente','Ano','Ejes'],rows.map(function(v){return [v.exportCompany,v.type,v.brand,v.model,v.plate,vehicleSubLocationText(v),v.year||'',v.axles||'']}));return}
+  if(type==='usuarios'){let companyFilter=document.getElementById('backupCsvCompany')?.value||'',rows=users.filter(function(u){return !companyFilter||(u.locations?.[companyFilter]||[]).length});csvDownload(suffix,['Usuario','Nombre','Rol','Phelox','Transportes El Avion'],rows.map(function(u){return [u.id,u.name,u.role,(u.locations?.['Phelox Ltda']||[]).join(' / '),(u.locations?.['Transportes El Avion']||[]).join(' / ')]}));return}
+  let companyFilter=document.getElementById('backupCsvCompany')?.value||'',locationFilter=document.getElementById('backupCsvLocation')?.value||'',rows=stock.filter(function(i){return (!locationFilter||norm(i.loc)===norm(locationFilter))&&(!companyFilter||(locations[companyFilter]||[]).some(function(l){return norm(l)===norm(i.loc)}))});csvDownload(suffix,['Codigo','Articulo','Tipo','Marca','Modelo','Ubicacion','Cantidad','Ideal','Minimo','Precio','Moneda'],rows.map(function(i){return [i.code,i.part,i.type,i.brand,i.model,i.loc,i.qty,i.ideal,i.min,i.price,i.currency||'UYU']}));
+};
+
 cardIcon=function(name){
   const emojis={wrench:'🔧',truck:'🚛',box:'📦',chart:'📊',settings:'⚙️',tire:'🛞',edit:'✏️',trash:'🗑️',plus:'➕',in:'📥',out:'📤',move:'🔄',history:'📚',user:'👷',pin:'🌱',eye:'👁️'};
   return '<div class="cardIcon" aria-hidden="true"><span class="forestEmoji">'+(emojis[name]||'🌿')+'</span>'+icon(name)+'</div>';
