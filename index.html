@@ -3573,6 +3573,17 @@ newStockItemForm=function(){
   addExistingArticleCompatibilitySelector();
   return result;
 };
+function syncArticleCompatibility(code,selectedCodes){
+  let currentCode=String(code||'').trim().toUpperCase(),selected=new Set((selectedCodes||[]).map(function(c){return String(c||'').trim().toUpperCase()}).filter(function(c){return c&&c!==currentCode}));
+  stock.forEach(function(item){
+    let itemCode=String(item.code||'').trim().toUpperCase(),links=new Set((item.compatibleArticleCodes||[]).map(function(c){return String(c||'').trim().toUpperCase()}).filter(Boolean));
+    if(itemCode===currentCode)item.compatibleArticleCodes=Array.from(selected);
+    else{
+      if(selected.has(itemCode))links.add(currentCode);else links.delete(currentCode);
+      item.compatibleArticleCodes=Array.from(links);
+    }
+  });
+}
 var saveNewStockItemBeforeArticleType=saveNewStockItem;
 saveNewStockItem=async function(){
   if(document.getElementById('nType')?.value==='__new')return alert('Escribi el nombre del nuevo tipo de articulo');
@@ -3583,7 +3594,7 @@ saveNewStockItem=async function(){
     modalConfirmAction=function(){
       originalAction();
       let item=stock.find(function(row){return String(row.code).toUpperCase()===code});
-      if(item){item.compatibleArticleCodes=compatible.slice();saveData()}
+      if(item){syncArticleCompatibility(code,compatible);saveData()}
     };
   }
   return result;
@@ -3643,7 +3654,7 @@ function enhanceEditStockPhotoManager(item){
 function renderEditCompatibilityArticles(){
   let box=document.getElementById('edCompatibilityArticles'),search=norm(document.getElementById('edCompatibilityArticleSearch')?.value||''),currentCode=(document.getElementById('edCode')?.value||'').trim().toUpperCase();
   if(!box)return;
-  let currentItem=stock.find(function(item){return String(item.code).toUpperCase()===currentCode}),selected=new Set([...(currentItem?.compatibleArticleCodes||[]),...[...box.querySelectorAll('input:checked')].map(function(input){return input.value})]);
+  let currentItem=stock.find(function(item){return String(item.code).toUpperCase()===currentCode}),reverse=stock.filter(function(item){return (item.compatibleArticleCodes||[]).some(function(code){return String(code).toUpperCase()===currentCode})}).map(function(item){return item.code}),selected=new Set([...(currentItem?.compatibleArticleCodes||[]),...reverse,...[...box.querySelectorAll('input:checked')].map(function(input){return input.value})]);
   let items=uniqueStockItems(stock).filter(function(item){return String(item.code).toUpperCase()!==currentCode&&(!search||norm(item.code).includes(search))}).slice(0,40);
   box.innerHTML=items.map(function(item){
     return `<label style="display:flex;gap:9px;align-items:center;padding:7px 9px;border-bottom:1px solid var(--line)"><input type="checkbox" value="${val(item.code)}" ${selected.has(item.code)?'checked':''}><span><b>${item.code}</b> · ${item.part} <span class="muted">· ${item.brand||'General'} ${item.model||''}</span></span></label>`;
@@ -3668,7 +3679,7 @@ saveStockItemEdit=async function(code){
   let result=await saveStockItemEditBeforeCompatibility(code);
   if(item&&typeof modalConfirmAction==='function'){
     let originalAction=modalConfirmAction;
-    modalConfirmAction=function(){originalAction();item.compatibleArticleCodes=compatible.slice();saveData()};
+    modalConfirmAction=function(){originalAction();syncArticleCompatibility(item.code,compatible);saveData()};
   }
   return result;
 };
@@ -3873,6 +3884,126 @@ function renderStockPurchaseList(){
   if(summary)summary.innerHTML=`<div class="grid"><div class="card"><span class="muted">Productos bajo ideal</span><div class="metric">${all.length}</div></div><div class="card"><span class="muted">Productos mostrados</span><div class="metric">${rows.length}</div><span class="muted">${loc||'Todas'} / ${severity}</span></div><div class="card"><span class="muted">Unidades a reponer</span><div class="metric">${units}</div></div></div>`;
   if(box)box.innerHTML=stockPurchaseTableForView(rows,loc);
 }
+
+function compatibleStockArticles(code){
+  let currentCode=String(code||'').toUpperCase(),current=stock.find(function(i){return String(i.code||'').toUpperCase()===currentCode}),codes=new Set((current?.compatibleArticleCodes||[]).map(function(c){return String(c||'').toUpperCase()}));
+  stock.forEach(function(i){
+    if((i.compatibleArticleCodes||[]).some(function(c){return String(c||'').toUpperCase()===currentCode}))codes.add(String(i.code||'').toUpperCase());
+  });
+  codes.delete(currentCode);
+  return Array.from(codes).map(function(compatibleCode){
+    let variants=stock.filter(function(i){return String(i.code||'').toUpperCase()===compatibleCode}),sample=variants[0];
+    if(!sample)return null;
+    return {code:compatibleCode,item:sample,qty:variants.reduce(function(sum,i){return sum+(Number(i.qty)||0)},0),locations:variants.map(function(i){return `${i.loc||'Sin ubicacion'}: ${Number(i.qty)||0}`}).join(' / ')};
+  }).filter(Boolean).sort(function(a,b){return String(a.code).localeCompare(String(b.code))});
+}
+function stockCompatibilityHistoryHtml(code){
+  let rows=compatibleStockArticles(code);
+  return `<div class="panel" id="productCompatibilityHistory"><div class="top"><div><h2>Articulos compatibles / equivalentes</h2><span class="muted">Variantes que pueden usarse como alternativa para este articulo.</span></div><span class="badge">${rows.length} compatible${rows.length===1?'':'s'}</span></div>${rows.length?`<div class="tableScroll"><table><thead><tr><th>Foto</th><th>Codigo</th><th>Articulo</th><th>Tipo</th><th>Marca / modelo</th><th>Aplicacion / anos</th><th>Stock</th><th>Ubicaciones</th>${canSeeMoney()?'<th>Precio unit.</th>':''}<th></th></tr></thead><tbody>${rows.map(function(r){let i=r.item;return `<tr><td>${itemPhoto(i)}</td><td><b>${r.code}</b></td><td><b>${i.part||'-'}</b></td><td>${i.type||'-'}</td><td>${i.brand||'-'}<div class="muted">${i.model||'Sin modelo'}</div></td><td>${compatibilityText(i)}</td><td><b>${r.qty}</b></td><td>${r.locations||'Sin stock actual'}</td>${canSeeMoney()?`<td class="money">${itemUnitMoney(i)}</td>`:''}<td><button class="primary" onclick="openStockProductHistory('${r.code}')">Ver historial</button></td></tr>`}).join('')}</tbody></table></div>`:'<div class="notice">Este articulo todavia no tiene compatibles seleccionados. Podes agregarlos desde Editar articulo.</div>'}</div>`;
+}
+const openStockProductHistoryWithoutCompatibility=openStockProductHistory;
+openStockProductHistory=function(code,filter='todo'){
+  openStockProductHistoryWithoutCompatibility(code,filter);
+  let firstPanel=stockViewBox?.querySelector('.panel'),summaryGrid=firstPanel?.querySelector('.grid');
+  if(summaryGrid)summaryGrid.insertAdjacentHTML('afterend',stockCompatibilityHistoryHtml(code));
+};
+
+let expenseTableMode='vehicle',expenseVehicleType='',expenseVehicleBrand='',expenseVehicleLocation='',expenseVehicleSearch='',expenseFrontLocation='',expenseFrontVehicle='',expenseFrontType='',expenseFrontSearch='',expenseArticleType='',expenseArticleBrand='',expenseArticleSearch='',expensesFromCompanies=false,expenseCompanyFilter='';
+function expenseFleetForSummary(){
+  if(!expensesFromCompanies)return visibleFleet(company);
+  if(expenseCompanyFilter==='Phelox Ltda')return pheloxFleet.slice();
+  if(expenseCompanyFilter==='Transportes El Avion')return avionFleet.slice();
+  return [...pheloxFleet,...avionFleet];
+}
+function expenseLocationsForSummary(){
+  if(!expensesFromCompanies)return companyLocations();
+  if(expenseCompanyFilter)return locations[expenseCompanyFilter]||[];
+  return [...new Set([...(locations['Phelox Ltda']||[]),...(locations['Transportes El Avion']||[])])];
+}
+function openExpensesFromCompanies(){
+  if(!isAdmin())return alert('Tu usuario no tiene acceso al resumen general de gastos');
+  expensesFromCompanies=true;expenseCompanyFilter='';adminFromCompanies=false;companies.classList.add('hidden');app.classList.remove('hidden');mainMenu.classList.add('hidden');module.classList.remove('hidden');companyTitle.textContent='Resumen de gastos general';headerLogo.innerHTML='';expensesView();
+}
+const renderCompanyScreenBeforeExpenses=renderCompanyScreen;
+renderCompanyScreen=function(){
+  renderCompanyScreenBeforeExpenses();
+  if(!isAdmin())return;
+  let grid=companies.querySelector('.grid');
+  if(grid&&!document.getElementById('adminExpensesHomeCard'))grid.insertAdjacentHTML('beforeend',`<div id="adminExpensesHomeCard" class="card" onclick="openExpensesFromCompanies()">${cardIcon('chart')}<h2>Resumen de gastos</h2><span class="muted">Total de las dos empresas y filtros detallados</span></div>`);
+};
+const enterBeforeGeneralExpenses=enter;
+enter=function(c,area=''){expensesFromCompanies=false;expenseCompanyFilter='';return enterBeforeGeneralExpenses(c,area)};
+function expenseAmountsText(uyu,usd){
+  let values=[];if(Number(uyu))values.push(moneyCurrency(Number(uyu),'UYU'));if(Number(usd))values.push(moneyCurrency(Number(usd),'USD'));
+  return values.join(' / ')||moneyCurrency(0,'UYU');
+}
+function expenseFrontDetailEvents(location){
+  let fleet=expenseFleetForSummary(),plates=new Set(fleet.map(function(v){return v.plate})),rows=[];
+  hist.filter(function(h){return plates.has(h.plate)}).forEach(function(h){
+    (h.items||[]).forEach(function(i){
+      let item=stock.find(function(s){return String(s.code||'').toUpperCase()===String(i.code||'').toUpperCase()}),loc=i.loc||h.partsLocation||h.location||'Sin ubicacion';
+      if(norm(loc)!==norm(location))return;
+      rows.push({date:h.date,vehicle:h.vehicle||h.plate,plate:h.plate,code:i.code||'-',part:i.part||item?.part||i.code||'-',type:item?.type||'Mantenimiento',qty:Number(i.qty)||0,total:Number(i.subtotal)||((Number(i.qty)||0)*(Number(i.price)||0)),currency:i.currency||h.currency||'UYU',location:loc,detail:h.job||'Mantenimiento'});
+    });
+  });
+  tireChanges.filter(function(t){return plates.has(t.plate)}).forEach(function(t){
+    let vehicle=fleet.find(function(v){return v.plate===t.plate}),loc=t.loc||vehicleSubLocationText(vehicle);
+    if(norm(loc)!==norm(location)||(Number(t.cost)||0)<=0)return;
+    rows.push({date:t.date,vehicle:t.vehicle||t.plate,plate:t.plate,code:'CUB',part:t.tire||'Cubierta',type:'Cubierta',qty:1,total:Number(t.cost)||0,currency:t.currency||'UYU',location:loc,detail:`${t.action||'Cambio'} - ${t.position||''}`});
+  });
+  return rows;
+}
+function renderExpenseGroupedTable(){
+  let box=document.getElementById('expenseGroupedTableBox'),select=document.getElementById('expenseTableMode');
+  if(!box)return;expenseTableMode=select?.value||expenseTableMode;
+  let fleet=expenseFleetForSummary(),mode=expenseCompanyFilter==='Transportes El Avion'||(!expensesFromCompanies&&company.includes('Avion'))?'a':'p';
+  if(expenseTableMode==='vehicle'){
+    expenseVehicleType=document.getElementById('expenseVehicleType')?.value??expenseVehicleType;expenseVehicleBrand=document.getElementById('expenseVehicleBrand')?.value??expenseVehicleBrand;expenseVehicleLocation=document.getElementById('expenseVehicleLocation')?.value??expenseVehicleLocation;expenseVehicleSearch=document.getElementById('expenseVehicleSearch')?.value??expenseVehicleSearch;
+    let types=[...new Set(fleet.map(function(v){return v.type||'Sin tipo'}))].sort(),brands=[...new Set(fleet.map(function(v){return v.brand||'Sin marca'}))].sort(),locations=[...new Set(fleet.map(vehicleSubLocationText))].sort();
+    let rows=fleet.filter(function(v){return (!expenseVehicleType||(v.type||'Sin tipo')===expenseVehicleType)&&(!expenseVehicleBrand||(v.brand||'Sin marca')===expenseVehicleBrand)&&(!expenseVehicleLocation||vehicleSubLocationText(v)===expenseVehicleLocation)&&(!expenseVehicleSearch||norm(`${v.type} ${v.brand} ${v.model} ${v.plate} ${vehicleSubLocationText(v)}`).includes(norm(expenseVehicleSearch)))}).sort(function(a,b){return vehicleExpenseUyu(b)-vehicleExpenseUyu(a)||vehicleExpenseUsd(b)-vehicleExpenseUsd(a)});
+    box.innerHTML=`<div class="form"><label>Tipo<select id="expenseVehicleType" onchange="renderExpenseGroupedTable()"><option value="">Todos los tipos</option>${types.map(function(x){return `<option value="${val(x)}" ${x===expenseVehicleType?'selected':''}>${x}</option>`}).join('')}</select></label><label>Marca<select id="expenseVehicleBrand" onchange="renderExpenseGroupedTable()"><option value="">Todas las marcas</option>${brands.map(function(x){return `<option value="${val(x)}" ${x===expenseVehicleBrand?'selected':''}>${x}</option>`}).join('')}</select></label><label>Frente / ubicacion<select id="expenseVehicleLocation" onchange="renderExpenseGroupedTable()"><option value="">Todos los frentes</option>${locations.map(function(x){return `<option value="${val(x)}" ${x===expenseVehicleLocation?'selected':''}>${x}</option>`}).join('')}</select></label><label>Buscar<input id="expenseVehicleSearch" value="${val(expenseVehicleSearch)}" onchange="renderExpenseGroupedTable()" placeholder="Modelo, matricula..."></label></div><div class="tableScroll"><table><thead><tr><th>Vehiculo</th><th>Tipo</th><th>Matricula</th><th>Frente</th><th>Gasto</th><th></th></tr></thead><tbody>${rows.map(function(v){let vehicleMode=avionFleet.includes(v)?'a':'p';return `<tr><td><b>${v.brand} ${v.model}</b></td><td>${v.type||'-'}</td><td>${v.plate}</td><td>${vehicleSubLocationText(v)}</td><td class="money">${expenseAmountsText(vehicleExpenseUyu(v),vehicleExpenseUsd(v))}</td><td><button class="primary" onclick="openExpenseVehicleHistory('${v.plate}','${vehicleMode}')">Ver historial</button></td></tr>`}).join('')||'<tr><td colspan="6">No hay vehiculos para esos filtros.</td></tr>'}</tbody></table></div><div id="expenseVehicleBox"></div>`;
+    return;
+  }
+  if(expenseTableMode==='front'){
+    expenseFrontLocation=document.getElementById('expenseFrontLocation')?.value??expenseFrontLocation;
+    let locations=[...new Set([...(expenseLocationsForSummary()||[]),...fleet.map(vehicleSubLocationText)])].sort();
+    let grouped={};fleet.forEach(function(v){let name=vehicleSubLocationText(v),row=grouped[name]||(grouped[name]={name:name,vehicles:0,uyu:0,usd:0});row.vehicles++;row.uyu+=vehicleExpenseUyu(v);row.usd+=vehicleExpenseUsd(v)});
+    let rows=Object.values(grouped).filter(function(r){return !expenseFrontLocation||r.name===expenseFrontLocation}).sort(function(a,b){return b.uyu-a.uyu||b.usd-a.usd||a.name.localeCompare(b.name)});
+    let locationFilter=`<div class="form"><label>Frente / ubicacion<select id="expenseFrontLocation" onchange="expenseFrontVehicle='';expenseFrontType='';expenseFrontSearch='';renderExpenseGroupedTable()"><option value="">Todas las ubicaciones</option>${locations.map(function(x){return `<option value="${val(x)}" ${x===expenseFrontLocation?'selected':''}>${x}</option>`}).join('')}</select></label></div>`;
+    if(!expenseFrontLocation){
+      box.innerHTML=locationFilter+`<div class="tableScroll"><table><thead><tr><th>Frente / ubicacion</th><th>Vehiculos</th><th>Gasto en pesos</th><th>Gasto en dolares</th><th>Gasto total registrado</th></tr></thead><tbody>${rows.map(function(r){return `<tr><td><b>${r.name}</b></td><td>${r.vehicles}</td><td class="money">${moneyCurrency(r.uyu,'UYU')}</td><td class="money">${moneyCurrency(r.usd,'USD')}</td><td class="money"><b>${expenseAmountsText(r.uyu,r.usd)}</b></td></tr>`}).join('')||'<tr><td colspan="5">No hay gastos para mostrar.</td></tr>'}</tbody></table></div>`;
+      return;
+    }
+    expenseFrontVehicle=document.getElementById('expenseFrontVehicle')?.value??expenseFrontVehicle;expenseFrontType=document.getElementById('expenseFrontType')?.value??expenseFrontType;expenseFrontSearch=document.getElementById('expenseFrontSearch')?.value??expenseFrontSearch;
+    let events=expenseFrontDetailEvents(expenseFrontLocation),vehicles=[...new Set(events.map(function(e){return e.vehicle}))].sort(),types=[...new Set(events.map(function(e){return e.type}))].sort();
+    let filtered=events.filter(function(e){return (!expenseFrontVehicle||e.vehicle===expenseFrontVehicle)&&(!expenseFrontType||e.type===expenseFrontType)&&(!expenseFrontSearch||norm(`${e.code} ${e.part} ${e.detail}`).includes(norm(expenseFrontSearch)))});
+    let uyu=filtered.filter(function(e){return e.currency!=='USD'}).reduce(function(sum,e){return sum+e.total},0),usd=filtered.filter(function(e){return e.currency==='USD'}).reduce(function(sum,e){return sum+e.total},0);
+    box.innerHTML=locationFilter+`<div class="notice"><b>Detalle de gastos en ${expenseFrontLocation}</b><div class="muted">Usa los filtros para ver en que vehiculo y articulos se realizo el gasto.</div></div><div class="form"><label>Vehiculo<select id="expenseFrontVehicle" onchange="renderExpenseGroupedTable()"><option value="">Todos los vehiculos</option>${vehicles.map(function(x){return `<option value="${val(x)}" ${x===expenseFrontVehicle?'selected':''}>${x}</option>`}).join('')}</select></label><label>Tipo de gasto<select id="expenseFrontType" onchange="renderExpenseGroupedTable()"><option value="">Todos los tipos</option>${types.map(function(x){return `<option value="${val(x)}" ${x===expenseFrontType?'selected':''}>${x}</option>`}).join('')}</select></label><label>Articulo<input id="expenseFrontSearch" value="${val(expenseFrontSearch)}" onchange="renderExpenseGroupedTable()" placeholder="Codigo o nombre..."></label></div><div class="grid"><div class="card"><span class="muted">Registros encontrados</span><div class="metric">${filtered.length}</div></div><div class="card"><span class="muted">Total filtrado</span><h2>${expenseAmountsText(uyu,usd)}</h2></div></div><div class="tableScroll"><table><thead><tr><th>Fecha</th><th>Vehiculo</th><th>Codigo</th><th>Articulo</th><th>Tipo</th><th>Cantidad</th><th>Gasto</th><th>Detalle</th></tr></thead><tbody>${filtered.map(function(e){return `<tr><td>${e.date}</td><td>${e.vehicle}</td><td><b>${e.code}</b></td><td>${e.part}</td><td>${e.type}</td><td>${e.qty}</td><td class="money">${moneyCurrency(e.total,e.currency)}</td><td>${e.detail}</td></tr>`}).join('')||'<tr><td colspan="8">No hay gastos detallados para esos filtros.</td></tr>'}</tbody></table></div>`;
+    return;
+  }
+  expenseArticleType=document.getElementById('expenseArticleTypeFilter')?.value??expenseArticleType;expenseArticleBrand=document.getElementById('expenseArticleBrandFilter')?.value??expenseArticleBrand;expenseArticleSearch=document.getElementById('expenseArticleGroupedSearch')?.value??expenseArticleSearch;
+  let articleInfo=function(r){return stock.find(function(i){return String(i.code||'').toUpperCase()===String(r.code||'').toUpperCase()})||{}},types=[...new Set(expenseArticleRows.map(function(r){return r.kind||'Sin tipo'}))].sort(),brands=[...new Set(expenseArticleRows.map(function(r){return articleInfo(r).brand||'Sin marca'}))].sort();
+  let rows=expenseArticleRows.filter(function(r){let i=articleInfo(r),brand=i.brand||'Sin marca';return (!expenseArticleType||(r.kind||'Sin tipo')===expenseArticleType)&&(!expenseArticleBrand||brand===expenseArticleBrand)&&(!expenseArticleSearch||norm(`${r.code} ${r.part} ${r.kind} ${brand} ${i.model||''}`).includes(norm(expenseArticleSearch)))});
+  box.innerHTML=`<div class="form"><label>Tipo<select id="expenseArticleTypeFilter" onchange="renderExpenseGroupedTable()"><option value="">Todos los tipos</option>${types.map(function(x){return `<option value="${val(x)}" ${x===expenseArticleType?'selected':''}>${x}</option>`}).join('')}</select></label><label>Marca<select id="expenseArticleBrandFilter" onchange="renderExpenseGroupedTable()"><option value="">Todas las marcas</option>${brands.map(function(x){return `<option value="${val(x)}" ${x===expenseArticleBrand?'selected':''}>${x}</option>`}).join('')}</select></label><label>Buscar articulo<input id="expenseArticleGroupedSearch" value="${val(expenseArticleSearch)}" onchange="renderExpenseGroupedTable()" placeholder="Codigo, nombre o modelo..."></label></div><div class="tableScroll"><table><thead><tr><th>Codigo</th><th>Articulo</th><th>Tipo</th><th>Marca</th><th>Cantidad usada</th><th>Gasto</th><th></th></tr></thead><tbody>${rows.map(function(r){let i=articleInfo(r);return `<tr><td><b>${r.code}</b></td><td>${r.part}<div class="muted">${i.model||''}</div></td><td>${r.kind}</td><td>${i.brand||'Sin marca'}</td><td>${r.qty}</td><td class="money">${moneyCurrency(r.total,r.currency)}</td><td><button class="primary" onclick="openExpenseArticleHistory('${encodeURIComponent(r.key)}')">Ver historial</button></td></tr>`}).join('')||'<tr><td colspan="7">No hay articulos para esos filtros.</td></tr>'}</tbody></table></div><div id="expenseArticleDetail"></div>`;
+}
+const expensesViewBeforeGroupedTable=expensesView;
+expensesView=function(){
+  let originalVisibleFleet=visibleFleet;
+  if(expensesFromCompanies)visibleFleet=function(){return expenseFleetForSummary()};
+  expensesViewBeforeGroupedTable();
+  visibleFleet=originalVisibleFleet;
+  if(expensesFromCompanies){
+    let usd=expenseFleetForSummary().reduce(function(sum,v){return sum+vehicleExpenseUsd(v)},0),summaryGrid=content.querySelector('.grid');
+    if(summaryGrid)summaryGrid.insertAdjacentHTML('beforeend',`<div class="card"><span class="muted">Gasto acumulado en dolares</span><div class="metric">${moneyCurrency(usd,'USD')}</div></div>`);
+  }
+  Array.from(content.querySelectorAll('.panel')).forEach(function(panel){
+    let title=panel.querySelector('h2')?.textContent.trim();
+    if(title==='Gasto por articulo'||title==='Gasto por marca')panel.remove();
+  });
+  if(expensesFromCompanies)content.insertAdjacentHTML('afterbegin',`<div class="panel"><div class="top"><div><h2>Resumen general de las empresas</h2><span class="muted">El total inicial incluye Phelox Ltda y Transportes El Avion.</span></div><label>Empresa<select id="expenseCompanyFilter" onchange="expenseCompanyFilter=this.value;expenseVehicleType='';expenseVehicleBrand='';expenseVehicleLocation='';expenseFrontLocation='';expenseFrontVehicle='';expenseFrontType='';expenseArticleType='';expenseArticleBrand='';expensesView()"><option value="" ${!expenseCompanyFilter?'selected':''}>Todas las empresas</option><option ${expenseCompanyFilter==='Phelox Ltda'?'selected':''}>Phelox Ltda</option><option ${expenseCompanyFilter==='Transportes El Avion'?'selected':''}>Transportes El Avion</option></select></label></div></div>`);
+  content.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h2>Tabla detallada de gastos</h2><span class="muted">Selecciona como queres agrupar el resumen.</span></div><label>Mostrar tabla por<select id="expenseTableMode" onchange="renderExpenseGroupedTable()"><option value="vehicle" ${expenseTableMode==='vehicle'?'selected':''}>Por vehiculo</option><option value="front" ${expenseTableMode==='front'?'selected':''}>Por frente</option><option value="article" ${expenseTableMode==='article'?'selected':''}>Por articulo</option></select></label></div><div id="expenseGroupedTableBox"></div></div>`);
+  renderExpenseGroupedTable();
+};
 
 stockView=function(){
   let actions=`${(isAdmin()||isCentralStockUser())?`<button class="ghost" onclick="leaveIfSaved(newStockItemForm)">${icon('plus')} Nuevo articulo</button>`:''} ${canDo('stockEntry')?`<button class="gold" onclick="leaveIfSaved(stockEntryForm)">${icon('in')} Ingresar</button>`:''} ${canDo('stockConsume')?`<button class="primary" onclick="leaveIfSaved(stockConsumeForm)">${icon('out')} Consumir</button>`:''} ${canDo('stockMove')?`<button class="ghost" onclick="leaveIfSaved(stockMoveForm)">${icon('move')} Mover ubicacion</button>`:''} ${canCreateStockOrder()?`<button class="primary" onclick="leaveIfSaved(stockRequestsView)">${icon('in')} Pedidos</button>`:''} ${(isAdmin()||currentUser?.role==='Encargado Stock'||canDo('stockMove'))?`<button class="gold" onclick="leaveIfSaved(stockPurchaseList)">${icon('history')} Lista de compra</button>`:''}`;
