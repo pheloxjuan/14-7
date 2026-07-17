@@ -4381,6 +4381,93 @@ exportModuleCsv=function(){
   let companyFilter=document.getElementById('backupCsvCompany')?.value||'',locationFilter=document.getElementById('backupCsvLocation')?.value||'',rows=stock.filter(function(i){return (!locationFilter||norm(i.loc)===norm(locationFilter))&&(!companyFilter||(locations[companyFilter]||[]).some(function(l){return norm(l)===norm(i.loc)}))});csvDownload(suffix,['Codigo','Articulo','Tipo','Marca','Modelo','Ubicacion','Cantidad','Ideal','Minimo','Precio','Moneda'],rows.map(function(i){return [i.code,i.part,i.type,i.brand,i.model,i.loc,i.qty,i.ideal,i.min,i.price,i.currency||'UYU']}));
 };
 
+const googleDriveBackupConfigKey=dataKey+'_google_drive_backup_v1';
+let googleDriveBackupConfig={clientId:'',folderId:'',folderName:'Respaldos Gestion Phelox',retention:30,lastBackup:'',lastFileName:'',lastStatus:'Sin configurar'};
+try{googleDriveBackupConfig={...googleDriveBackupConfig,...JSON.parse(localStorage.getItem(googleDriveBackupConfigKey)||'{}')}}catch(e){}
+let googleDriveAccessToken='',googleDriveTokenExpiresAt=0,googleDriveTokenClient=null;
+function saveGoogleDriveBackupConfig(){localStorage.setItem(googleDriveBackupConfigKey,JSON.stringify(googleDriveBackupConfig))}
+function googleDriveIsConnected(){return !!googleDriveAccessToken&&Date.now()<googleDriveTokenExpiresAt-60000}
+function ensureGoogleIdentityLibrary(){
+  if(window.google?.accounts?.oauth2)return Promise.resolve();
+  return new Promise(function(resolve,reject){
+    let existing=document.getElementById('googleIdentityLibrary');if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',reject,{once:true});return}
+    let script=document.createElement('script');script.id='googleIdentityLibrary';script.src='https://accounts.google.com/gsi/client';script.async=true;script.defer=true;script.onload=resolve;script.onerror=function(){reject(new Error('No se pudo cargar Google Identity Services'))};document.head.appendChild(script);
+  });
+}
+function storeGoogleDriveSettings(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede configurar Google Drive');
+  googleDriveBackupConfig.clientId=(document.getElementById('googleDriveClientId')?.value||'').trim();
+  googleDriveBackupConfig.retention=Math.max(1,Math.min(365,parseInt(document.getElementById('googleDriveRetention')?.value||30)||30));
+  saveGoogleDriveBackupConfig();success('Configuracion de Google Drive guardada.');superAdminBackupCenter();
+}
+async function connectGoogleDrive(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede conectar Google Drive');
+  let input=(document.getElementById('googleDriveClientId')?.value||googleDriveBackupConfig.clientId||'').trim();if(!input)return alert('Ingresa primero el ID de cliente OAuth de Google');
+  googleDriveBackupConfig.clientId=input;googleDriveBackupConfig.retention=Math.max(1,Math.min(365,parseInt(document.getElementById('googleDriveRetention')?.value||googleDriveBackupConfig.retention)||30));saveGoogleDriveBackupConfig();
+  try{
+    await ensureGoogleIdentityLibrary();
+    await new Promise(function(resolve,reject){
+      googleDriveTokenClient=google.accounts.oauth2.initTokenClient({client_id:googleDriveBackupConfig.clientId,scope:'https://www.googleapis.com/auth/drive.file',callback:function(response){if(response?.error)return reject(new Error(response.error));googleDriveAccessToken=response.access_token;googleDriveTokenExpiresAt=Date.now()+(Number(response.expires_in)||3600)*1000;resolve()},error_callback:function(error){reject(new Error(error?.type||'No se pudo abrir la autorizacion de Google'))}});
+      googleDriveTokenClient.requestAccessToken({prompt:'consent'});
+    });
+    googleDriveBackupConfig.lastStatus='Google Drive conectado';saveGoogleDriveBackupConfig();addBackupAudit('Google Drive conectado','Cuenta autorizada para respaldos');success('Google Drive conectado correctamente.');superAdminBackupCenter();
+  }catch(e){googleDriveAccessToken='';googleDriveTokenExpiresAt=0;googleDriveBackupConfig.lastStatus='Error de conexion';saveGoogleDriveBackupConfig();alert('No se pudo conectar con Google Drive. Verifica el ID OAuth y que esta direccion web este autorizada en Google Cloud.')}
+}
+function disconnectGoogleDrive(){
+  if(googleDriveAccessToken&&window.google?.accounts?.oauth2)google.accounts.oauth2.revoke(googleDriveAccessToken,function(){});
+  googleDriveAccessToken='';googleDriveTokenExpiresAt=0;googleDriveTokenClient=null;googleDriveBackupConfig.lastStatus='Desconectado';saveGoogleDriveBackupConfig();addBackupAudit('Google Drive desconectado','');superAdminBackupCenter();
+}
+async function googleDriveRequest(url,options={}){
+  if(!googleDriveIsConnected())throw new Error('La cuenta de Google Drive no esta conectada o la sesion vencio');
+  let headers=new Headers(options.headers||{});headers.set('Authorization','Bearer '+googleDriveAccessToken);let response=await fetch(url,{...options,headers:headers});
+  if(response.status===401){googleDriveAccessToken='';googleDriveTokenExpiresAt=0;throw new Error('La autorizacion de Google Drive vencio. Volve a conectar la cuenta')}
+  if(!response.ok){let detail='';try{detail=(await response.json())?.error?.message||''}catch(e){}throw new Error(detail||('Google Drive respondio '+response.status))}
+  return response.status===204?null:response.json();
+}
+async function ensureGoogleDriveBackupFolder(){
+  if(googleDriveBackupConfig.folderId){try{await googleDriveRequest('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(googleDriveBackupConfig.folderId)+'?fields=id,trashed');return googleDriveBackupConfig.folderId}catch(e){googleDriveBackupConfig.folderId='';saveGoogleDriveBackupConfig()}}
+  let q=encodeURIComponent("trashed=false and mimeType='application/vnd.google-apps.folder' and appProperties has { key='gestionPhelox' and value='backupFolder' }");
+  let found=await googleDriveRequest('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id,name)&spaces=drive');
+  if(found.files?.length)googleDriveBackupConfig.folderId=found.files[0].id;
+  else{let folder=await googleDriveRequest('https://www.googleapis.com/drive/v3/files?fields=id,name',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:googleDriveBackupConfig.folderName,mimeType:'application/vnd.google-apps.folder',appProperties:{gestionPhelox:'backupFolder'}})});googleDriveBackupConfig.folderId=folder.id}
+  saveGoogleDriveBackupConfig();return googleDriveBackupConfig.folderId;
+}
+async function trimGoogleDriveBackups(folderId){
+  let q=encodeURIComponent("'"+folderId+"' in parents and trashed=false and appProperties has { key='gestionPhelox' and value='backup' }");
+  let result=await googleDriveRequest('https://www.googleapis.com/drive/v3/files?q='+q+'&orderBy=createdTime%20desc&pageSize=1000&fields=files(id,name,createdTime)&spaces=drive'),keep=Math.max(1,Number(googleDriveBackupConfig.retention)||30),old=(result.files||[]).slice(keep);
+  for(let file of old)await googleDriveRequest('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id),{method:'DELETE'});
+}
+async function uploadBackupToGoogleDrive(data,reason='Respaldo manual',serializedData=''){
+  let folderId=await ensureGoogleDriveBackupFolder(),fileName=backupFileName('respaldo-drive'),metadata={name:fileName,parents:[folderId],mimeType:'application/json',description:reason,appProperties:{gestionPhelox:'backup',backupFormat:'gestion-flota-completo'}},form=new FormData();
+  form.append('metadata',new Blob([JSON.stringify(metadata)],{type:'application/json'}));form.append('file',new Blob([serializedData||JSON.stringify(data,null,2)],{type:'application/json'}));
+  let uploaded=await googleDriveRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,createdTime,webViewLink',{method:'POST',body:form});
+  googleDriveBackupConfig.lastBackup=new Date().toISOString();googleDriveBackupConfig.lastFileName=uploaded.name||fileName;googleDriveBackupConfig.lastStatus='Respaldo guardado correctamente';saveGoogleDriveBackupConfig();addBackupAudit('Respaldo guardado en Google Drive',`${uploaded.name||fileName} · ${reason}`);
+  try{await trimGoogleDriveBackups(folderId)}catch(e){addBackupAudit('Limpieza de respaldos en Drive','No se pudieron quitar copias antiguas: '+e.message)}
+  return uploaded;
+}
+async function saveBackupNowToGoogleDrive(){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede guardar respaldos en Google Drive');if(!googleDriveIsConnected())return alert('Conecta primero la cuenta de Google Drive');
+  let button=document.getElementById('googleDriveSaveNow');if(button){button.disabled=true;button.textContent='Guardando...'}
+  try{await uploadBackupToGoogleDrive(unifiedBackupData(),'Respaldo manual');success('Respaldo guardado correctamente en Google Drive.');superAdminBackupCenter()}catch(e){googleDriveBackupConfig.lastStatus='Error: '+e.message;saveGoogleDriveBackupConfig();addBackupAudit('Error de respaldo en Google Drive',e.message);alert('No se pudo guardar en Google Drive: '+e.message);superAdminBackupCenter()}
+}
+async function automaticGoogleDriveBackup(data,reason){
+  if(!googleDriveIsConnected())return false;
+  let serializedData=JSON.stringify(data,null,2);
+  try{await uploadBackupToGoogleDrive(data,reason,serializedData);return true}catch(e){googleDriveBackupConfig.lastStatus='Error automatico: '+e.message;saveGoogleDriveBackupConfig();addBackupAudit('Error de respaldo automatico en Drive',e.message);return false}
+}
+const downloadUnifiedBackupBeforeGoogleDrive=downloadUnifiedBackup;
+downloadUnifiedBackup=function(automatic=false){
+  if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar respaldos completos');
+  let data=unifiedBackupData();downloadTextFile(backupFileName(automatic?'respaldo-automatico':'respaldo-completo'),JSON.stringify(data,null,2));addBackupAudit(automatic?'Respaldo automatico':'Respaldo descargado',JSON.stringify(backupCounts(data)));
+  if(automatic)automaticGoogleDriveBackup(data,'Copia automatica previa a una operacion');else success('Respaldo completo descargado correctamente.');
+}
+const superAdminBackupCenterBeforeGoogleDrive=superAdminBackupCenter;
+superAdminBackupCenter=function(){
+  superAdminBackupCenterBeforeGoogleDrive();if(!isSuperAdmin())return;
+  let connected=googleDriveIsConnected(),last=googleDriveBackupConfig.lastBackup?new Date(googleDriveBackupConfig.lastBackup).toLocaleString('es-UY'):'Todavia no se guardaron copias',panel=`<div class="panel"><div class="top"><div><h3>Respaldos en Google Drive</h3><span class="muted">Guarda copias completas en una carpeta privada de la cuenta conectada.</span></div><span class="badge ${connected?'success':'warn'}">${connected?'Conectado':'Desconectado'}</span></div><div class="grid"><div class="card"><span class="muted">Ultimo respaldo</span><h3>${last}</h3><div>${googleDriveBackupConfig.lastFileName||googleDriveBackupConfig.lastStatus}</div></div><div class="card"><span class="muted">Carpeta</span><h3>${googleDriveBackupConfig.folderName}</h3><div>Conservar las ultimas ${googleDriveBackupConfig.retention} copias</div></div></div><div class="form"><label>ID de cliente OAuth de Google<input id="googleDriveClientId" value="${val(googleDriveBackupConfig.clientId)}" placeholder="000000000000-...apps.googleusercontent.com"></label><label>Copias a conservar<input id="googleDriveRetention" type="number" min="1" max="365" value="${googleDriveBackupConfig.retention}"></label></div><div class="modalActions"><button class="ghost" onclick="storeGoogleDriveSettings()">Guardar configuracion</button>${connected?'<button class="ghost" onclick="disconnectGoogleDrive()">Desconectar</button><button id="googleDriveSaveNow" class="primary" onclick="saveBackupNowToGoogleDrive()">Guardar ahora en Drive</button>':'<button class="primary" onclick="connectGoogleDrive()">Conectar Google Drive</button>'}</div><div class="notice"><b>Copias automaticas:</b> mientras Google Drive este conectado, tambien se guardara una copia en Drive antes de restaurar datos o importar stock y mantenimientos. Si la autorizacion vence, la copia local se seguira descargando y sera necesario volver a conectar la cuenta.<br><span class="muted">Google debe tener autorizada esta direccion: https://pheloxjuan.github.io</span></div></div>`;
+  adminBox.insertAdjacentHTML('afterbegin',panel);
+};
+
 cardIcon=function(name){
   const emojis={wrench:'🔧',truck:'🚛',box:'📦',chart:'📊',settings:'⚙️',tire:'🛞',edit:'✏️',trash:'🗑️',plus:'➕',in:'📥',out:'📤',move:'🔄',history:'📚',user:'👷',pin:'🌱',eye:'👁️'};
   return '<div class="cardIcon" aria-hidden="true"><span class="forestEmoji">'+(emojis[name]||'🌿')+'</span>'+icon(name)+'</div>';
