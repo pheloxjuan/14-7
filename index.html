@@ -4382,8 +4382,9 @@ exportModuleCsv=function(){
 };
 
 const googleDriveBackupConfigKey=dataKey+'_google_drive_backup_v1';
-let googleDriveBackupConfig={clientId:'',folderId:'',folderName:'Respaldos Gestion Phelox',retention:30,lastBackup:'',lastFileName:'',lastStatus:'Sin configurar'};
+let googleDriveBackupConfig={clientId:'',folderId:'',folderName:'Respaldos Gestion Phelox',retention:10,retentionVersion:2,lastBackup:'',lastFileName:'',lastStatus:'Sin configurar'};
 try{googleDriveBackupConfig={...googleDriveBackupConfig,...JSON.parse(localStorage.getItem(googleDriveBackupConfigKey)||'{}')}}catch(e){}
+if((googleDriveBackupConfig.retentionVersion||0)<2){googleDriveBackupConfig.retention=10;googleDriveBackupConfig.retentionVersion=2;localStorage.setItem(googleDriveBackupConfigKey,JSON.stringify(googleDriveBackupConfig))}
 let googleDriveAccessToken='',googleDriveTokenExpiresAt=0,googleDriveTokenClient=null;
 function saveGoogleDriveBackupConfig(){localStorage.setItem(googleDriveBackupConfigKey,JSON.stringify(googleDriveBackupConfig))}
 function googleDriveIsConnected(){return !!googleDriveAccessToken&&Date.now()<googleDriveTokenExpiresAt-60000}
@@ -4397,13 +4398,13 @@ function ensureGoogleIdentityLibrary(){
 function storeGoogleDriveSettings(){
   if(!isSuperAdmin())return alert('Solo el superadministrador puede configurar Google Drive');
   googleDriveBackupConfig.clientId=(document.getElementById('googleDriveClientId')?.value||'').trim();
-  googleDriveBackupConfig.retention=Math.max(1,Math.min(365,parseInt(document.getElementById('googleDriveRetention')?.value||30)||30));
+  googleDriveBackupConfig.retention=Math.max(1,Math.min(365,parseInt(document.getElementById('googleDriveRetention')?.value||10)||10));
   saveGoogleDriveBackupConfig();success('Configuracion de Google Drive guardada.');superAdminBackupCenter();
 }
 async function connectGoogleDrive(){
   if(!isSuperAdmin())return alert('Solo el superadministrador puede conectar Google Drive');
   let input=(document.getElementById('googleDriveClientId')?.value||googleDriveBackupConfig.clientId||'').trim();if(!input)return alert('Ingresa primero el ID de cliente OAuth de Google');
-  googleDriveBackupConfig.clientId=input;googleDriveBackupConfig.retention=Math.max(1,Math.min(365,parseInt(document.getElementById('googleDriveRetention')?.value||googleDriveBackupConfig.retention)||30));saveGoogleDriveBackupConfig();
+  googleDriveBackupConfig.clientId=input;googleDriveBackupConfig.retention=Math.max(1,Math.min(365,parseInt(document.getElementById('googleDriveRetention')?.value||googleDriveBackupConfig.retention)||10));saveGoogleDriveBackupConfig();
   try{
     await ensureGoogleIdentityLibrary();
     await new Promise(function(resolve,reject){
@@ -4434,7 +4435,7 @@ async function ensureGoogleDriveBackupFolder(){
 }
 async function trimGoogleDriveBackups(folderId){
   let q=encodeURIComponent("'"+folderId+"' in parents and trashed=false and appProperties has { key='gestionPhelox' and value='backup' }");
-  let result=await googleDriveRequest('https://www.googleapis.com/drive/v3/files?q='+q+'&orderBy=createdTime%20desc&pageSize=1000&fields=files(id,name,createdTime)&spaces=drive'),keep=Math.max(1,Number(googleDriveBackupConfig.retention)||30),old=(result.files||[]).slice(keep);
+  let result=await googleDriveRequest('https://www.googleapis.com/drive/v3/files?q='+q+'&orderBy=createdTime%20desc&pageSize=1000&fields=files(id,name,createdTime)&spaces=drive'),keep=Math.max(1,Number(googleDriveBackupConfig.retention)||10),old=(result.files||[]).slice(keep);
   for(let file of old)await googleDriveRequest('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id),{method:'DELETE'});
 }
 async function uploadBackupToGoogleDrive(data,reason='Respaldo manual',serializedData=''){
@@ -4447,7 +4448,7 @@ async function uploadBackupToGoogleDrive(data,reason='Respaldo manual',serialize
 }
 async function trimGoogleDriveExcelBackups(folderId){
   let q=encodeURIComponent("'"+folderId+"' in parents and trashed=false and appProperties has { key='gestionPhelox' and value='backupExcel' }");
-  let result=await googleDriveRequest('https://www.googleapis.com/drive/v3/files?q='+q+'&orderBy=createdTime%20desc&pageSize=1000&fields=files(id,name,createdTime)&spaces=drive'),keep=Math.max(1,Number(googleDriveBackupConfig.retention)||30),old=(result.files||[]).slice(keep);
+  let result=await googleDriveRequest('https://www.googleapis.com/drive/v3/files?q='+q+'&orderBy=createdTime%20desc&pageSize=1000&fields=files(id,name,createdTime)&spaces=drive'),keep=Math.max(1,Number(googleDriveBackupConfig.retention)||10),old=(result.files||[]).slice(keep);
   for(let file of old)await googleDriveRequest('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id),{method:'DELETE'});
 }
 async function uploadCompleteExcelToGoogleDrive(reason='Respaldo manual'){
