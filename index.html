@@ -4969,6 +4969,24 @@ function isCompanyAreaActive(c,a){return inactiveCompanyAreas[companyAreaId(c,a)
 function saveCompanyAreaStatus(){localStorage.setItem(companyAreaStatusKey,JSON.stringify(inactiveCompanyAreas))}
 function allCompanyAreas(c){let values=Object.values(locationAreas?.[c]||{}).filter(Boolean);if(c==='Phelox Ltda')values.push('Taller','Cosecha','Plantacion');if(!values.length)values.push('General');return [...new Set(values)].sort()}
 function activeCompanyAreas(c){return allCompanyAreas(c).filter(a=>isCompanyAreaActive(c,a))}
+function isLocationAreaActive(c,l){let area=locationAreaForCompany(c,l);return !area||area==='-'||isCompanyAreaActive(c,area)}
+activeLocations=function(c){return (locations[c]||[]).filter(l=>isLocationActive(c,l)&&isLocationAreaActive(c,l))};
+const allowedLocationsBeforeInactiveArea=allowedLocations;
+allowedLocations=function(c=company){return allowedLocationsBeforeInactiveArea(c).filter(l=>isLocationAreaActive(c,l))};
+const canAccessLocBeforeInactiveArea=canAccessLoc;
+canAccessLoc=function(loc,c=company){return isLocationAreaActive(c,loc)&&canAccessLocBeforeInactiveArea(loc,c)};
+const canAccessVehicleBeforeInactiveArea=canAccessVehicle;
+canAccessVehicle=function(v,c=company){let loc=vehicleSubLocationText(v);return (!loc||loc==='Sin frente operacion'||isLocationAreaActive(c,loc))&&canAccessVehicleBeforeInactiveArea(v,c)};
+const renderLocationsBeforeInactiveArea=renderLocations;
+renderLocations=function(){
+  let result=renderLocationsBeforeInactiveArea(),target=locCompany?.value||company;
+  locationsBox?.querySelectorAll('tbody tr').forEach(row=>{
+    let cells=row.querySelectorAll('td'),loc=cells[4]?.querySelector('b')?.textContent||'';if(!loc||isLocationAreaActive(target,loc))return;
+    row.style.opacity='.45';let badge=cells[0]?.querySelector('.badge');if(badge){badge.className='badge rejected';badge.textContent='Oculta por área'}
+    let actions=cells[6];if(actions){actions.querySelectorAll('button:not(.ghost)').forEach(button=>button.remove());actions.insertAdjacentHTML('beforeend',' <span class="muted">Reactiva el área para habilitarla</span>')}
+  });
+  return result;
+};
 const adminCompanyFormBeforeStructure=adminCompanyForm;
 adminCompanyForm=function(id=''){let result=adminCompanyFormBeforeStructure(id),c=companyRegistry.find(row=>row.id===id),box=document.getElementById('adminCompanyEditor');if(!box||!c)return result;let key=companyDataKey(c),areas=allCompanyAreas(key),activeAreas=activeCompanyAreas(key);box.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Áreas y sububicaciones</h3><span class="muted">Estructura interna de ${c.name}. Desactivar conserva todos los registros.</span></div></div><div class="panel"><h3>Áreas de la empresa</h3><div class="form"><input id="newCompanyAreaName" placeholder="Nueva área, por ejemplo Cosecha"><button class="primary" onclick="addCompanyArea('${c.id}')">Agregar área</button></div><div class="tableScroll"><table><thead><tr><th>Área</th><th>Estado</th><th>Sububicaciones</th><th></th></tr></thead><tbody>${areas.map(a=>{let active=isCompanyAreaActive(key,a),count=(locations[key]||[]).filter(l=>norm(locationAreaForCompany(key,l))===norm(a)).length;return `<tr style="opacity:${active?'1':'.58'}"><td><b>${a}</b></td><td><span class="badge ${active?'success':'rejected'}">${active?'Activa':'Desactivada'}</span></td><td>${count}</td><td><button class="${active?'red':'primary'}" onclick="toggleCompanyArea('${c.id}','${encodeURIComponent(a)}',${!active})">${active?'Desactivar':'Reactivar'}</button></td></tr>`}).join('')}</tbody></table></div></div><div class="panel"><h3>Sububicaciones de ${c.name}</h3><div class="form"><select id="locCompany" style="display:none"><option selected>${key}</option></select><label>Área<select id="locArea">${activeAreas.map(a=>`<option>${a}</option>`).join('')||'<option>General</option>'}</select></label><label>Tipo<select id="locRole"><option>Frente operacion</option><option>Deposito</option><option>Taller</option><option>Deposito y taller</option></select></label><input id="locName" placeholder="Nombre de la nueva sububicación"><button class="primary" onclick="saveLocation()">Agregar sububicación</button></div><div id="locationsBox"></div></div></div>`);renderLocations();return result};
 function addCompanyArea(id){let c=companyRegistry.find(row=>row.id===id),key=companyDataKey(c),name=(document.getElementById('newCompanyAreaName')?.value||'').trim();if(!c||!name)return alert('Escribí el nombre del área');if(allCompanyAreas(key).some(a=>norm(a)===norm(name)))return alert('Esa área ya existe');locationAreas[key]=locationAreas[key]||{};locationAreas[key]['__AREA__'+name]=name;inactiveCompanyAreas[companyAreaId(key,name)]=true;saveCompanyAreaStatus();saveData();success('Área agregada.');adminCompanyForm(id)}
