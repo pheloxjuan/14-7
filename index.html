@@ -5078,7 +5078,69 @@ superAdminBackupCenter=function(){
   return result;
 };
 
+/* Supabase etapa 1: autenticacion real opcional, sin reemplazar aun los datos
+   locales ni los accesos rapidos del demo. La clave publica es segura en el
+   navegador porque los permisos efectivos se controlan con RLS en Supabase. */
+const SUPABASE_URL='https://qpkivgrrkudrcjytevjy.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_fEytN-A-X5Y-UF1NsVY7wQ_uc6IZ9rG';
+let supabaseClient=null,supabaseSessionActive=false;
+function ensureSupabaseClient(){
+  if(supabaseClient)return Promise.resolve(supabaseClient);
+  return new Promise((resolve,reject)=>{
+    function ready(){try{supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});resolve(supabaseClient)}catch(error){reject(error)}}
+    if(window.supabase)return ready();
+    let script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';script.onload=ready;script.onerror=()=>reject(new Error('No se pudo conectar con Supabase'));document.head.appendChild(script);
+  });
+}
+function supabaseEmailForLogin(value){let entered=String(value||'').trim().toLowerCase();return entered==='juan'?'juancruz19@hotmail.com':entered}
+function supabaseRoleToLocal(role){return {superadministrador:'Superadministrador',administrador_general:'Administrador',encargado_frente:'Encargado Frente',encargado_stock:'Encargado Stock',mecanico:'Mecanico',chofer:'Chofer'}[role]||role}
+function showSupabaseLogin(message=''){
+  login.innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><div class="top"><h1>Ingreso seguro</h1><button class="ghost" onclick="renderLoginUsers()">Volver al demo</button></div><p class="muted">Primera etapa de conexión con Supabase. Por ahora está habilitado el usuario real de Juan.</p>${message?`<div class="notice">${message}</div>`:''}<div class="form"><label class="wide">Usuario o correo<input id="supabaseLoginUser" autocomplete="username" placeholder="juan"></label><label class="wide">Contraseña<input id="supabaseLoginPass" type="password" autocomplete="current-password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')loginWithSupabase()"></label><button id="supabaseLoginButton" class="primary wide" onclick="loginWithSupabase()">Ingresar con Supabase</button></div><div class="path">La contraseña se verifica en Supabase y no se guarda dentro de este archivo.</div></div>`;
+}
+async function loginWithSupabase(){
+  let identifier=document.getElementById('supabaseLoginUser')?.value||'',password=document.getElementById('supabaseLoginPass')?.value||'',button=document.getElementById('supabaseLoginButton');
+  if(!identifier.trim()||!password)return alert('Completa usuario y contraseña');
+  if(button){button.disabled=true;button.textContent='Ingresando...'}
+  try{
+    let client=await ensureSupabaseClient(),auth=await client.auth.signInWithPassword({email:supabaseEmailForLogin(identifier),password});if(auth.error)throw auth.error;
+    let result=await client.from('profiles').select('id,username,full_name,phone,role,active,hourly_rate,hourly_currency,must_change_password').eq('id',auth.data.user.id).single();if(result.error)throw result.error;
+    let p=result.data;if(!p.active){await client.auth.signOut();throw new Error('Usuario desactivado')}
+    let role=supabaseRoleToLocal(p.role),all=['Superadministrador','Administrador'].includes(role);
+    currentUser={id:p.username,name:p.full_name,role,pass:'',perms:all?{all:true}:defaultPermsForRole(role),supabaseId:p.id,phone:p.phone||'',hourlyRate:Number(p.hourly_rate||0),hourlyCurrency:p.hourly_currency||'UYU',locations:all?fullAdminLocations():{'Phelox Ltda':[],'Transportes El Avion':[]},vehiclesAll:{'Phelox Ltda':all,'Transportes El Avion':all},vehicles:{'Phelox Ltda':all?vehicleIdsForCompany('Phelox Ltda'):[],'Transportes El Avion':all?vehicleIdsForCompany('Transportes El Avion'):[]}};
+    supabaseSessionActive=true;login.classList.add('hidden');companies.classList.remove('hidden');userBox.classList.remove('hidden');userBox.innerHTML=`<b>${currentUser.name}</b><span>${currentUser.role} · Supabase</span><button class="ghost" onclick="logout()">Salir</button>`;renderCompanyScreen();
+  }catch(error){try{await supabaseClient?.auth.signOut()}catch(e){}supabaseSessionActive=false;showSupabaseLogin('No se pudo ingresar: '+(error.message||'revisa los datos'));}
+}
+const renderLoginUsersBeforeSupabasePhaseOne=renderLoginUsers;
+renderLoginUsers=function(){renderLoginUsersBeforeSupabasePhaseOne();let panel=login.querySelector('.panel');if(panel)panel.insertAdjacentHTML('beforeend','<button class="gold wide" style="margin-top:14px" onclick="showSupabaseLogin()">Ingresar con Supabase</button>')};
+const logoutBeforeSupabasePhaseOne=logout;
+logout=async function(){if(supabaseSessionActive){try{let client=await ensureSupabaseClient();await client.auth.signOut()}catch(e){}supabaseSessionActive=false}return logoutBeforeSupabasePhaseOne()};
+
+let supabaseRecoveryScreenActive=false;
+function showSupabasePasswordReset(){
+  supabaseRecoveryScreenActive=true;login.classList.remove('hidden');companies.classList.add('hidden');app.classList.add('hidden');userBox.classList.add('hidden');
+  login.innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><h1>Crear nueva contraseña</h1><p class="muted">El enlace de recuperación fue validado por Supabase. Elegí una contraseña que solamente vos conozcas.</p><div class="form"><label class="wide">Nueva contraseña<input id="supabaseNewPassword" type="password" autocomplete="new-password" minlength="10"></label><label class="wide">Repetir contraseña<input id="supabaseNewPassword2" type="password" autocomplete="new-password" minlength="10" onkeydown="if(event.key==='Enter')saveSupabaseRecoveredPassword()"></label><button id="supabaseSavePassword" class="primary wide" onclick="saveSupabaseRecoveredPassword()">Guardar nueva contraseña</button></div><div class="path">Debe tener al menos 10 caracteres. La aplicación no guarda ni muestra esta contraseña.</div></div>`;
+}
+async function saveSupabaseRecoveredPassword(){
+  let first=document.getElementById('supabaseNewPassword')?.value||'',second=document.getElementById('supabaseNewPassword2')?.value||'',button=document.getElementById('supabaseSavePassword');
+  if(first.length<10)return alert('La contraseña debe tener al menos 10 caracteres');
+  if(first!==second)return alert('Las contraseñas no coinciden');
+  if(button){button.disabled=true;button.textContent='Guardando...'}
+  try{
+    let client=await ensureSupabaseClient(),result=await client.auth.updateUser({password:first});if(result.error)throw result.error;
+    if(result.data?.user?.id)await client.from('profiles').update({must_change_password:false}).eq('id',result.data.user.id);
+    await client.auth.signOut();supabaseSessionActive=false;supabaseRecoveryScreenActive=false;history.replaceState({},document.title,location.pathname);showSupabaseLogin('Contraseña creada correctamente. Ya podés ingresar con tu usuario.');
+  }catch(error){if(button){button.disabled=false;button.textContent='Guardar nueva contraseña'}alert('No se pudo guardar la contraseña: '+(error.message||'solicita un enlace nuevo'))}
+}
+function initializeSupabaseRecovery(){
+  let recoveryRequested=location.hash.includes('type=recovery')||new URLSearchParams(location.search).has('code');
+  ensureSupabaseClient().then(client=>{
+    client.auth.onAuthStateChange((event,session)=>{if(event==='PASSWORD_RECOVERY'&&session?.user)showSupabasePasswordReset()});
+    if(recoveryRequested)client.auth.getSession().then(result=>{if(result.data?.session?.user&&!supabaseRecoveryScreenActive)showSupabasePasswordReset()});
+  }).catch(()=>{if(recoveryRequested)showSupabaseLogin('No se pudo validar el enlace. Revisá la conexión e intentá nuevamente.')});
+}
+
 renderLoginUsers();
+setTimeout(initializeSupabaseRecovery,0);
 
 cardIcon=function(name){
   const emojis={wrench:'🔧',truck:'🚛',box:'📦',chart:'📊',settings:'⚙️',tire:'🛞',edit:'✏️',trash:'🗑️',plus:'➕',in:'📥',out:'📤',move:'🔄',history:'📚',user:'👷',pin:'🌱',eye:'👁️'};
