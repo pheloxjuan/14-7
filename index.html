@@ -4916,26 +4916,15 @@ function clearFictitiousStockDataOnce(){
 }
 clearFictitiousStockDataOnce();
 
-/* El equipo real se carga en Supabase. El HTML conserva solo un acceso de prueba. */
-const usersCleanupKey=dataKey+'_users_cleanup_public_demo_roles_20260720_v3';
-function initializePublicDemoUserOnce(){
-  if(typeof localStorage==='undefined'||localStorage.getItem(usersCleanupKey)==='done')return;
-  let allLocations={'Phelox Ltda':(locations['Phelox Ltda']||[]).slice(),'Transportes El Avion':(locations['Transportes El Avion']||[]).slice()};
-  let makeDemo=(id,name,role)=>normalizeUser({id,name,role,pass:'1234',perms:['Superadministrador','Administrador general','Administrador'].includes(role)?{all:true}:defaultPermsForRole(role),locations:{'Phelox Ltda':allLocations['Phelox Ltda'].slice(),'Transportes El Avion':allLocations['Transportes El Avion'].slice()},vehiclesAll:{'Phelox Ltda':['Superadministrador','Administrador general','Administrador'].includes(role),'Transportes El Avion':['Superadministrador','Administrador general','Administrador'].includes(role)},vehicles:{'Phelox Ltda':[],'Transportes El Avion':[]}});
-  users.splice(0,users.length,
-    makeDemo('demo.super','Superadministrador Demo','Superadministrador'),
-    makeDemo('demo.admin.general','Administrador General Demo','Administrador general'),
-    makeDemo('demo.admin','Administrador Demo','Administrador'),
-    makeDemo('demo.stock','Encargado Stock Demo','Encargado Stock'),
-    makeDemo('demo.frente','Encargado Frente Demo','Encargado Frente'),
-    makeDemo('demo.mecanico','Mecanico Demo','Mecanico'),
-    makeDemo('demo.chofer','Chofer Demo','Chofer')
-  );
-  appMessages=[];
+/* Acceso exclusivamente autenticado por Supabase: se eliminan usuarios demo locales. */
+const usersCleanupKey=dataKey+'_users_cleanup_supabase_only_20260721_v1';
+function removeLocalDemoUsers(){
+  if(typeof localStorage==='undefined')return;
+  users.splice(0,users.length);
   localStorage.setItem(usersCleanupKey,'done');
   saveData();
 }
-initializePublicDemoUserOnce();
+removeLocalDemoUsers();
 
 /* Sububicaciones activas e inactivas: se ocultan de la operacion sin borrar historia. */
 const locationStatusKey=dataKey+'_location_status_v1';
@@ -5103,8 +5092,7 @@ superAdminBackupCenter=function(){
   return result;
 };
 
-/* Supabase etapa 1: autenticacion real opcional, sin reemplazar aun los datos
-   locales ni los accesos rapidos del demo. La clave publica es segura en el
+/* Autenticación obligatoria con Supabase. La clave publicable puede estar en el
    navegador porque los permisos efectivos se controlan con RLS en Supabase. */
 const SUPABASE_URL='https://qpkivgrrkudrcjytevjy.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_fEytN-A-X5Y-UF1NsVY7wQ_uc6IZ9rG';
@@ -5117,10 +5105,10 @@ function ensureSupabaseClient(){
     let script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';script.onload=ready;script.onerror=()=>reject(new Error('No se pudo conectar con Supabase'));document.head.appendChild(script);
   });
 }
-function supabaseEmailForLogin(value){let entered=String(value||'').trim().toLowerCase();return entered==='juan'?'juancruz19@hotmail.com':entered}
+function supabaseEmailForLogin(value){return String(value||'').trim().toLowerCase()}
 function supabaseRoleToLocal(role){return {superadministrador:'Superadministrador',administrador_general:'Administrador',encargado_frente:'Encargado Frente',encargado_stock:'Encargado Stock',mecanico:'Mecanico',chofer:'Chofer'}[role]||role}
 function showSupabaseLogin(message=''){
-  document.getElementById('login').innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><div class="top"><h1>Ingreso seguro</h1><button class="ghost" onclick="renderLoginUsers()">Volver al demo</button></div><p class="muted">Primera etapa de conexión con Supabase. Por ahora está habilitado el usuario real de Juan.</p>${message?`<div class="notice">${message}</div>`:''}<div class="form"><label class="wide">Usuario o correo<input id="supabaseLoginUser" autocomplete="username" placeholder="juan"></label><label class="wide">Contraseña<input id="supabaseLoginPass" type="password" autocomplete="current-password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')loginWithSupabase()"></label><button id="supabaseLoginButton" class="primary wide" onclick="loginWithSupabase()">Ingresar con Supabase</button></div><div class="path">La contraseña se verifica en Supabase y no se guarda dentro de este archivo.</div></div>`;
+  document.getElementById('login').innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><div class="top"><h1>Ingreso seguro</h1></div><p class="muted">Acceso exclusivo para usuarios registrados y activos.</p>${message?`<div class="notice">${message}</div>`:''}<div class="form"><label class="wide">Correo electrónico<input id="supabaseLoginUser" type="email" autocomplete="username" placeholder="usuario@empresa.com"></label><label class="wide">Contraseña<input id="supabaseLoginPass" type="password" autocomplete="current-password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')loginWithSupabase()"></label><button id="supabaseLoginButton" class="primary wide" onclick="loginWithSupabase()">Ingresar</button></div><div class="path">La contraseña se verifica en Supabase y no se guarda dentro de este archivo.</div></div>`;
 }
 async function loginWithSupabase(){
   let identifier=document.getElementById('supabaseLoginUser')?.value||'',password=document.getElementById('supabaseLoginPass')?.value||'',button=document.getElementById('supabaseLoginButton');
@@ -5135,8 +5123,7 @@ async function loginWithSupabase(){
     supabaseSessionActive=true;document.getElementById('login').classList.add('hidden');companies.classList.remove('hidden');userBox.classList.remove('hidden');userBox.innerHTML=`<b>${currentUser.name}</b><span>${currentUser.role} · Supabase</span><button class="ghost" onclick="logout()">Salir</button>`;renderCompanyScreen();
   }catch(error){try{await supabaseClient?.auth.signOut()}catch(e){}supabaseSessionActive=false;showSupabaseLogin('No se pudo ingresar: '+(error.message||'revisa los datos'));}
 }
-const renderLoginUsersBeforeSupabasePhaseOne=renderLoginUsers;
-renderLoginUsers=function(){renderLoginUsersBeforeSupabasePhaseOne();let panel=document.getElementById('login')?.querySelector('.panel');if(panel)panel.insertAdjacentHTML('beforeend','<button class="gold wide" style="margin-top:14px" onclick="showSupabaseLogin()">Ingresar con Supabase</button>')};
+renderLoginUsers=function(){showSupabaseLogin()};
 const logoutBeforeSupabasePhaseOne=logout;
 logout=async function(){if(supabaseSessionActive){try{let client=await ensureSupabaseClient();await client.auth.signOut()}catch(e){}supabaseSessionActive=false}return logoutBeforeSupabasePhaseOne()};
 
