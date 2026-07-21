@@ -2669,7 +2669,9 @@ function applyCleanOperationalData(){
   stock=rows;moves=newMoves;copyArray(hist,newHist);copyArray(tireChanges,newTires);stockRequests=newReq;appMessages=newMsgs;normalizeStockOrders();
 }
 canAccessVehicle=function(v,c=company){if(!currentUser||currentUser?.perms?.all)return true;if(String(c||'').includes('Avion'))return allowedLocations('Transportes El Avion').length>0;let loc=vehicleSubLocationText(v),hasLoc=loc&&loc!=='Sin frente operacion',byLoc=hasLoc&&allowedLocations(c).some(l=>norm(l)===norm(loc)),explicit=(currentUser?.vehicles?.[c]||[]).includes(v?.plate);return byLoc||(!hasLoc&&(currentUser?.vehiclesAll?.[c]||explicit))||(!currentUser?.vehiclesAll?.[c]&&explicit)}
-applyCleanCompanyStructure();applyCleanFleet();applyCleanUsers();applyCleanOperationalData();saveData();renderLoginUsers();
+/* Los datos de demostracion ya no se restauran al abrir la aplicacion.
+   Desde esta version se conservan los datos reales cargados o importados. */
+saveData();renderLoginUsers();
 ensureLocationRoleDefaults();
 function fleetLocFilterValue(){return document.getElementById('fleetLocFilter')?.value||''}
 function fleetLocationFilterHtml(c){if(!isAdmin())return '';let locs=locations[c]||[],sel=fleetLocFilterValue();return `<div class="form" style="margin:12px 0"><label>Filtrar por ubicacion<select id="fleetLocFilter" onchange="fleetView()"><option value="">Todas las ubicaciones</option>${locs.map(l=>`<option value="${l}" ${sel===l?'selected':''}>${l}</option>`).join('')}</select></label></div>`}
@@ -4034,7 +4036,8 @@ function loadCompanyRegistry(){
   companyRegistry.forEach(function(c){if(c.systemKey&&c.logo)logos[c.systemKey]=c.logo});
 }
 function saveCompanyRegistry(){localStorage.setItem(companyRegistryKey,JSON.stringify(companyRegistry))}
-function isSuperAdmin(){return currentUser?.role==='Superadministrador'||currentUser?.id==='juan'}
+function isSuperAdmin(){return currentUser?.role==='Superadministrador'}
+function canAccessBackupCenter(){return isSuperAdmin()||currentUser?.role==='Administrador'}
 function fullAdminLocations(){return {'Phelox Ltda':(locations['Phelox Ltda']||[]).slice(),'Transportes El Avion':(locations['Transportes El Avion']||[]).slice()}}
 function ensureAdministratorRoles(){
   let juan=users.find(function(u){return u.id==='juan'});if(juan){juan.role='Superadministrador';juan.perms={all:true};juan.locations=fullAdminLocations()}
@@ -4101,7 +4104,7 @@ readUserForm=function(oldId=''){
   return data;
 };
 const deleteUserBeforeAdminRoles=deleteUser;
-deleteUser=function(id){let target=users.find(function(u){return u.id===id});if(['Superadministrador','Administrador general'].includes(target?.role)&&!isSuperAdmin())return alert('Solo el superadministrador puede borrar administradores');if(id==='juan')return alert('Juan es el superadministrador principal y no puede borrarse');return deleteUserBeforeAdminRoles(id)};
+deleteUser=function(id){let target=users.find(function(u){return u.id===id});if(['Superadministrador','Administrador general'].includes(target?.role)&&!isSuperAdmin())return alert('Solo el superadministrador puede borrar administradores');if(target?.role==='Superadministrador')return alert('El superadministrador principal no puede borrarse');return deleteUserBeforeAdminRoles(id)};
 const renderCompanyScreenBeforeManagedCompanies=renderCompanyScreen;
 renderCompanyScreen=function(){
   renderCompanyScreenBeforeManagedCompanies();let grid=companies.querySelector('.grid');if(!grid)return;
@@ -4206,7 +4209,7 @@ function downloadTextFile(name,text,type='application/json'){
 }
 function backupFileName(prefix='respaldo-completo'){let d=new Date(),stamp=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}`;return `${prefix}_${stamp}.json`}
 function downloadUnifiedBackup(automatic=false){
-  if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar respaldos completos');
+  if(!canAccessBackupCenter())return alert('Solo administradores pueden descargar respaldos completos');
   let data=unifiedBackupData();downloadTextFile(backupFileName(automatic?'respaldo-automatico':'respaldo-completo'),JSON.stringify(data,null,2));addBackupAudit(automatic?'Respaldo automatico':'Respaldo descargado',JSON.stringify(backupCounts(data)));if(!automatic)success('Respaldo completo descargado correctamente.');
 }
 function validateUnifiedBackup(data){
@@ -4244,7 +4247,7 @@ function restoreUnifiedBackup(){
 function csvCell(value){let text=String(value??'').replace(/"/g,'""');return `"${text}"`}
 function csvDownload(name,headers,rows){let text='\ufeff'+headers.map(csvCell).join(';')+'\r\n'+rows.map(function(row){return row.map(csvCell).join(';')}).join('\r\n');downloadTextFile(name+'.csv',text,'text/csv;charset=utf-8');addBackupAudit('Exportacion CSV',name)}
 function exportModuleCsv(){
-  if(!isSuperAdmin())return alert('Solo el superadministrador puede realizar exportaciones generales');
+  if(!canAccessBackupCenter())return alert('Solo administradores pueden realizar exportaciones generales');
   let type=document.getElementById('backupCsvModule')?.value||'stock';
   if(type==='stock')csvDownload('stock',['Codigo','Articulo','Tipo','Marca','Modelo','Ubicacion','Cantidad','Ideal','Minimo','Precio','Moneda'],stock.map(function(i){return [i.code,i.part,i.type,i.brand,i.model,i.loc,i.qty,i.ideal,i.min,i.price,i.currency||'UYU']}));
   if(type==='flota')csvDownload('flota',['Empresa','Tipo','Marca','Modelo','Matricula','Frente','Ano','Ejes'],[...pheloxFleet.map(function(v){return ['Phelox Ltda',v.type,v.brand,v.model,v.plate,vehicleSubLocationText(v),v.year||'',v.axles||'']}),...avionFleet.map(function(v){return ['Transportes El Avion',v.type,v.brand,v.model,v.plate,vehicleSubLocationText(v),v.year||'',v.axles||'']})]);
@@ -4254,14 +4257,14 @@ function exportModuleCsv(){
   if(type==='usuarios')csvDownload('usuarios',['Usuario','Nombre','Rol','Phelox','Transportes El Avion'],users.map(function(u){return [u.id,u.name,u.role,(u.locations?.['Phelox Ltda']||[]).join(' / '),(u.locations?.['Transportes El Avion']||[]).join(' / ')]}));
 }
 function superAdminBackupCenter(){
-  if(!isSuperAdmin())return alert('Solo el superadministrador puede entrar al Centro de respaldos');
+  if(!canAccessBackupCenter())return alert('Solo administradores pueden entrar al Centro de respaldos');
   let current=unifiedBackupData();
   adminBox.innerHTML=`<div class="panel"><div class="top"><div><h3>Centro de respaldos</h3><span class="muted">Copias completas, validacion, restauracion y exportaciones.</span></div><button class="ghost" onclick="adminSettingsHub()">Volver a ajustes</button></div><div class="notice"><b>Estado actual incluido en el respaldo</b></div>${backupCountsHtml(current)}<div class="grid"><div class="card" onclick="downloadUnifiedBackup()">${cardIcon('in')}<h2>Descargar respaldo completo</h2><span class="muted">Incluye datos, empresas, logos, fotos, roles y configuraciones.</span></div><div class="card"><h2>Probar o restaurar respaldo</h2><input type="file" accept=".json,application/json" onchange="inspectUnifiedBackupFile(this)"><span class="muted">Primero se valida; no modifica datos al seleccionar el archivo.</span></div><div class="card"><h2>Exportar tabla CSV</h2><select id="backupCsvModule"><option value="stock">Stock</option><option value="flota">Flota</option><option value="movimientos">Movimientos</option><option value="pedidos">Pedidos</option><option value="mantenimientos">Mantenimientos</option><option value="usuarios">Usuarios</option></select><button class="primary" onclick="exportModuleCsv()">Descargar CSV</button></div></div><div id="backupValidationBox"></div><div class="panel"><h3>Actividad de respaldos</h3><div class="tableScroll"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Accion</th><th>Detalle</th></tr></thead><tbody>${backupAudit.slice(0,30).map(function(a){return `<tr><td>${a.date}</td><td>${a.user}</td><td><b>${a.action}</b></td><td>${a.detail}</td></tr>`}).join('')||'<tr><td colspan="4">Todavia no hay operaciones registradas.</td></tr>'}</tbody></table></div></div></div>`;
 }
 const adminSettingsHubBeforeBackupCenter=adminSettingsHub;
 adminSettingsHub=function(){
   adminSettingsHubBeforeBackupCenter();
-  if(isSuperAdmin()){let grid=adminBox.querySelector('.grid');if(grid)grid.insertAdjacentHTML('beforeend',`<div class="card" onclick="superAdminBackupCenter()">${cardIcon('history')}<h2>Centro de respaldos</h2><span class="muted">Crear, probar, restaurar y exportar datos</span></div>`)}
+  if(canAccessBackupCenter()){let grid=adminBox.querySelector('.grid');if(grid)grid.insertAdjacentHTML('beforeend',`<div class="card" onclick="superAdminBackupCenter()">${cardIcon('history')}<h2>Centro de respaldos</h2><span class="muted">Crear respaldos y exportar datos</span></div>`)}
 };
 function ensureXlsxLibrary(){
   if(window.XLSX)return Promise.resolve(window.XLSX);
@@ -4358,7 +4361,7 @@ function exportRowsFiltered(rows){
   return rows.filter(function(r){let recordLoc=r.loc||r.location||r.toLoc||r.partsLocation||'';return (!comp||exportRecordCompany(r)===comp)&&(!loc||norm(recordLoc)===norm(loc))&&stockDateInRange(r.date,from,to)});
 }
 exportModuleCsv=function(){
-  if(!isSuperAdmin())return alert('Solo el superadministrador puede realizar exportaciones generales');
+  if(!canAccessBackupCenter())return alert('Solo administradores pueden realizar exportaciones generales');
   let type=document.getElementById('backupCsvModule')?.value||'stock',comp=document.getElementById('backupCsvCompany')?.value||'todas',loc=document.getElementById('backupCsvLocation')?.value||'todas',suffix=`${type}_${norm(comp).replace(/ /g,'-')}_${norm(loc).replace(/ /g,'-')}`;
   if(type==='completo'){
     let rows=[];
@@ -4470,7 +4473,7 @@ async function automaticGoogleDriveBackup(data,reason){
 }
 const downloadUnifiedBackupBeforeGoogleDrive=downloadUnifiedBackup;
 downloadUnifiedBackup=function(automatic=false){
-  if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar respaldos completos');
+  if(!canAccessBackupCenter())return alert('Solo administradores pueden descargar respaldos completos');
   let data=unifiedBackupData();downloadTextFile(backupFileName(automatic?'respaldo-automatico':'respaldo-completo'),JSON.stringify(data,null,2));addBackupAudit(automatic?'Respaldo automatico':'Respaldo descargado',JSON.stringify(backupCounts(data)));
   if(automatic)automaticGoogleDriveBackup(data,'Copia automatica previa a una operacion');else success('Respaldo completo descargado correctamente.');
 }
@@ -4493,7 +4496,7 @@ function createCompleteExcelWorkbook(XLSX){
     append('Mantenimientos',hist.map(function(h){return {Fecha:h.date||'',Empresa:exportRecordCompany(h),Vehiculo:h.vehicle||'',Matricula:h.plate||'',Kilometraje:h.km||'',Trabajo:h.job||'',Usuario:h.user||'',Ubicacion:h.location||h.partsLocation||'',Costo:h.cost||0,Moneda:h.currency||'UYU',Comentarios:h.notes||''}}));return book;
 }
 async function downloadCompleteExcel(){
-  if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar el Excel completo');
+  if(!canAccessBackupCenter())return alert('Solo administradores pueden descargar el Excel completo');
   try{
     let XLSX=await ensureXlsxLibrary(),book=createCompleteExcelWorkbook(XLSX);XLSX.writeFile(book,'exportacion_completa_gestion_'+todayInput()+'.xlsx');addBackupAudit('Exportacion Excel completa','Empresas, ubicaciones, usuarios, flota, stock, movimientos, pedidos y mantenimientos');success('Excel completo descargado correctamente.');
   }catch(e){alert('No se pudo preparar el Excel completo. Verifica la conexion a internet.')}
@@ -4537,8 +4540,9 @@ superAdminBackupCenter=function(){
 renderLoginUsers=function(){
   let box=document.getElementById('login');
   if(!box)return;
-  box.innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><h1>Ingresar al sistema</h1><p class="muted">Escribí tu usuario y contraseña para continuar.</p><div class="form"><label class="wide">Usuario<input id="loginUser" autocomplete="username" placeholder="Usuario" onkeydown="if(event.key==='Enter')loginPass.focus()"></label><label class="wide">Contraseña<input id="loginPass" type="password" autocomplete="current-password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')login()"></label><button class="primary wide" onclick="login()">Ingresar</button><button class="ghost wide" onclick="passwordRecoveryRequestForm()">Olvidé mi contraseña</button></div><div class="path">La recuperación debe ser autorizada por el superadministrador.</div></div>`;
+  box.innerHTML=`<div class="panel" style="max-width:760px;margin:30px auto"><h1>Ingresar al sistema</h1><p class="muted">Escribí tu usuario y contraseña para continuar.</p><div class="form"><label class="wide">Usuario<input id="loginUser" autocomplete="username" placeholder="Usuario" onkeydown="if(event.key==='Enter')loginPass.focus()"></label><label class="wide">Contraseña<input id="loginPass" type="password" autocomplete="current-password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')login()"></label><button class="primary wide" onclick="login()">Ingresar</button><button class="ghost wide" onclick="passwordRecoveryRequestForm()">Olvidé mi contraseña</button></div><div class="path">La recuperación debe ser autorizada por el superadministrador.</div><div class="panel" style="margin-top:16px"><h3>Accesos rápidos del demo</h3><p class="muted">Todos usan la contraseña <b>1234</b>. Elegí un rol para completar el ingreso.</p><div class="tableScroll"><table><thead><tr><th>Rol</th><th>Usuario</th><th>Contraseña</th><th></th></tr></thead><tbody>${users.filter(u=>String(u.id||'').startsWith('demo.')).map(u=>`<tr><td><b>${u.role}</b></td><td>${u.id}</td><td>1234</td><td><button class="primary" onclick="useDemoCredentials('${u.id}')">Usar</button></td></tr>`).join('')}</tbody></table></div></div></div>`;
 };
+function useDemoCredentials(id){let user=document.getElementById('loginUser'),pass=document.getElementById('loginPass');if(user)user.value=id;if(pass)pass.value='1234';pass?.focus()}
 function passwordRecoveryRequestForm(){
   let box=document.getElementById('login');if(!box)return;
   box.innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><div class="top"><h1>Recuperar contraseña</h1><button class="ghost" onclick="renderLoginUsers()">Volver</button></div><p class="muted">Enviá la solicitud. El superadministrador la revisará y, si la aprueba, te llamará para comunicarte la nueva contraseña.</p><div class="form"><label class="wide">Usuario<input id="recoveryUser" autocomplete="username" placeholder="Tu usuario"></label><label class="wide">Teléfono de contacto<input id="recoveryPhone" inputmode="tel" placeholder="Número para que te llamen"></label><textarea id="recoveryNote" class="wide" placeholder="Comentario opcional"></textarea><button class="primary wide" onclick="submitPasswordRecoveryRequest()">Enviar solicitud</button></div></div>`;
@@ -4547,7 +4551,8 @@ function submitPasswordRecoveryRequest(){
   let username=(document.getElementById('recoveryUser')?.value||'').trim().toLowerCase(),phone=(document.getElementById('recoveryPhone')?.value||'').trim(),note=(document.getElementById('recoveryNote')?.value||'').trim();
   if(!username||!phone)return missing([!username?'Usuario':'',!phone?'Teléfono':''].filter(Boolean));
   let user=users.find(u=>norm(u.id)===norm(username)),existing=(appMessages||[]).some(m=>m.type==='Recuperación contraseña'&&m.requestUserId===username&&m.status==='Pendiente');
-  if(user&&!existing)appMessages.unshift({id:'PASS-'+Date.now(),date:now(),toUser:'juan',toName:'Juan',toRole:'Superadministrador',from:user.name,fromUser:user.id,type:'Recuperación contraseña',title:'Solicitud de nueva contraseña',body:`${user.name} (${user.id}) solicita recuperar su contraseña. Teléfono: ${phone}.${note?' Comentario: '+note:''}`,status:'Pendiente',read:false,requestUserId:user.id,requestPhone:phone,requestNote:note});
+  let superUser=users.find(u=>u.role==='Superadministrador');
+  if(user&&!existing&&superUser)appMessages.unshift({id:'PASS-'+Date.now(),date:now(),toUser:superUser.id,toName:superUser.name,toRole:'Superadministrador',from:user.name,fromUser:user.id,type:'Recuperación contraseña',title:'Solicitud de nueva contraseña',body:`${user.name} (${user.id}) solicita recuperar su contraseña. Teléfono: ${phone}.${note?' Comentario: '+note:''}`,status:'Pendiente',read:false,requestUserId:user.id,requestPhone:phone,requestNote:note});
   if(user&&!existing)saveData();
   renderLoginUsers();
   let notice=document.querySelector('#login .panel');if(notice)notice.insertAdjacentHTML('afterbegin','<div class="notice"><b>Solicitud recibida.</b> El superadministrador la revisará y se comunicará por teléfono.</div>');
@@ -4860,6 +4865,83 @@ const appDataSnapshotBeforeMaintenanceJobs=appDataSnapshot;
 appDataSnapshot=function(){return {...appDataSnapshotBeforeMaintenanceJobs(),maintenanceJobs:maintenanceJobs}}
 const applyAppDataSnapshotBeforeMaintenanceJobs=applyAppDataSnapshot;
 applyAppDataSnapshot=function(data){let result=applyAppDataSnapshotBeforeMaintenanceJobs(data);maintenanceJobs=Array.isArray(data?.maintenanceJobs)?data.maintenanceJobs:maintenanceJobs;localStorage.setItem(maintenanceJobsKey,JSON.stringify(maintenanceJobs));return result}
+
+/* Limpieza unica de la flota ficticia y de todos sus registros vinculados.
+   La marca evita volver a limpiar cuando luego se importe la flota real. */
+const fleetCleanupKey=dataKey+'_fleet_cleanup_20260720_v1';
+function clearFictitiousFleetDataOnce(){
+  if(typeof localStorage==='undefined'||localStorage.getItem(fleetCleanupKey)==='done')return;
+  pheloxFleet.splice(0,pheloxFleet.length);
+  avionFleet.splice(0,avionFleet.length);
+  hist.splice(0,hist.length);
+  tireChanges.splice(0,tireChanges.length);
+  maintenanceJobs.splice(0,maintenanceJobs.length);
+  workOrders.splice(0,workOrders.length);
+  moves=moves.filter(m=>!m.vehicle||m.vehicle==='-');
+  appMessages=appMessages.filter(m=>{
+    let type=norm(m.type||''),title=norm(m.title||'');
+    return !m.vehiclePlate&&!type.includes('reparacion')&&!type.includes('mantenimiento')&&!title.includes('reparacion')&&!title.includes('mantenimiento');
+  });
+  users.forEach(u=>{
+    u.vehicles=u.vehicles||{};
+    Object.keys(u.vehicles).forEach(c=>u.vehicles[c]=[]);
+  });
+  localStorage.setItem(maintenanceJobsKey,'[]');
+  localStorage.setItem(workOrdersKey,'[]');
+  localStorage.setItem(fleetCleanupKey,'done');
+  saveData();
+}
+clearFictitiousFleetDataOnce();
+
+/* Limpieza unica del stock de demostracion para comenzar la carga real. */
+const stockCleanupKey=dataKey+'_stock_cleanup_20260720_v1';
+function clearFictitiousStockDataOnce(){
+  if(typeof localStorage==='undefined'||localStorage.getItem(stockCleanupKey)==='done')return;
+  stock=[];
+  moves=[];
+  stockRequests=[];
+  appMessages=appMessages.filter(m=>{
+    let type=norm(m.type||''),title=norm(m.title||'');
+    return !type.includes('stock')&&!type.includes('pedido')&&!title.includes('stock')&&!title.includes('pedido');
+  });
+  localStorage.setItem(stockCleanupKey,'done');
+  saveData();
+}
+clearFictitiousStockDataOnce();
+
+/* El equipo real se carga en Supabase. El HTML conserva solo un acceso de prueba. */
+const usersCleanupKey=dataKey+'_users_cleanup_public_demo_roles_20260720_v3';
+function initializePublicDemoUserOnce(){
+  if(typeof localStorage==='undefined'||localStorage.getItem(usersCleanupKey)==='done')return;
+  let allLocations={'Phelox Ltda':(locations['Phelox Ltda']||[]).slice(),'Transportes El Avion':(locations['Transportes El Avion']||[]).slice()};
+  let makeDemo=(id,name,role)=>normalizeUser({id,name,role,pass:'1234',perms:['Superadministrador','Administrador general','Administrador'].includes(role)?{all:true}:defaultPermsForRole(role),locations:{'Phelox Ltda':allLocations['Phelox Ltda'].slice(),'Transportes El Avion':allLocations['Transportes El Avion'].slice()},vehiclesAll:{'Phelox Ltda':['Superadministrador','Administrador general','Administrador'].includes(role),'Transportes El Avion':['Superadministrador','Administrador general','Administrador'].includes(role)},vehicles:{'Phelox Ltda':[],'Transportes El Avion':[]}});
+  users.splice(0,users.length,
+    makeDemo('demo.super','Superadministrador Demo','Superadministrador'),
+    makeDemo('demo.admin.general','Administrador General Demo','Administrador general'),
+    makeDemo('demo.admin','Administrador Demo','Administrador'),
+    makeDemo('demo.stock','Encargado Stock Demo','Encargado Stock'),
+    makeDemo('demo.frente','Encargado Frente Demo','Encargado Frente'),
+    makeDemo('demo.mecanico','Mecanico Demo','Mecanico'),
+    makeDemo('demo.chofer','Chofer Demo','Chofer')
+  );
+  appMessages=[];
+  localStorage.setItem(usersCleanupKey,'done');
+  saveData();
+}
+initializePublicDemoUserOnce();
+
+/* Los administradores pueden crear y descargar copias; restaurar, importar y
+   configurar Google Drive permanecen reservados al superadministrador. */
+const backupCenterBeforeAdministratorAccess=superAdminBackupCenter;
+superAdminBackupCenter=function(){
+  let result=backupCenterBeforeAdministratorAccess();
+  if(canAccessBackupCenter()&&!isSuperAdmin()){
+    adminBox.querySelectorAll('.card').forEach(card=>{if(norm(card.textContent).includes('restaurar respaldo'))card.remove()});
+    adminBox.querySelectorAll('.panel').forEach(panel=>{let title=norm(panel.querySelector('h3')?.textContent||'');if(title.startsWith('importar '))panel.remove()});
+    let top=adminBox.querySelector('.panel');if(top)top.insertAdjacentHTML('afterbegin','<div class="notice"><b>Acceso de administrador:</b> puedes descargar respaldos JSON, Excel y exportaciones CSV. La restauracion, las importaciones y la configuracion de Google Drive requieren al superadministrador.</div>');
+  }
+  return result;
+};
 
 renderLoginUsers();
 
