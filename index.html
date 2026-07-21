@@ -4868,7 +4868,7 @@ applyAppDataSnapshot=function(data){let result=applyAppDataSnapshotBeforeMainten
 
 /* Limpieza unica de la flota ficticia y de todos sus registros vinculados.
    La marca evita volver a limpiar cuando luego se importe la flota real. */
-const fleetCleanupKey=dataKey+'_fleet_cleanup_20260720_v1';
+const fleetCleanupKey=dataKey+'_fleet_cleanup_20260720_v2';
 function clearFictitiousFleetDataOnce(){
   if(typeof localStorage==='undefined'||localStorage.getItem(fleetCleanupKey)==='done')return;
   pheloxFleet.splice(0,pheloxFleet.length);
@@ -4894,7 +4894,7 @@ function clearFictitiousFleetDataOnce(){
 clearFictitiousFleetDataOnce();
 
 /* Limpieza unica del stock de demostracion para comenzar la carga real. */
-const stockCleanupKey=dataKey+'_stock_cleanup_20260720_v1';
+const stockCleanupKey=dataKey+'_stock_cleanup_20260720_v2';
 function clearFictitiousStockDataOnce(){
   if(typeof localStorage==='undefined'||localStorage.getItem(stockCleanupKey)==='done')return;
   stock=[];
@@ -4929,6 +4929,141 @@ function initializePublicDemoUserOnce(){
   saveData();
 }
 initializePublicDemoUserOnce();
+
+/* Sububicaciones activas e inactivas: se ocultan de la operacion sin borrar historia. */
+const locationStatusKey=dataKey+'_location_status_v1';
+let inactiveLocations={};try{inactiveLocations=JSON.parse(localStorage.getItem(locationStatusKey)||'{}')||{}}catch(e){inactiveLocations={}}
+function saveLocationStatus(){localStorage.setItem(locationStatusKey,JSON.stringify(inactiveLocations))}
+function locationStatusId(c,l){return norm(c)+'|||'+norm(l)}
+function isLocationActive(c,l){return inactiveLocations[locationStatusId(c,l)]!==false}
+function activeLocations(c){return (locations[c]||[]).filter(l=>isLocationActive(c,l))}
+function setLocationActive(c,l,active){inactiveLocations[locationStatusId(c,l)]=!!active;saveLocationStatus()}
+const allowedLocationsBeforeStatus=allowedLocations;
+allowedLocations=function(c=company){return allowedLocationsBeforeStatus(c).filter(l=>isLocationActive(c,l))};
+const canAccessLocBeforeStatus=canAccessLoc;
+canAccessLoc=function(loc,c=company){return isLocationActive(c,loc)&&canAccessLocBeforeStatus(loc,c)};
+const canAccessVehicleBeforeLocationStatus=canAccessVehicle;
+canAccessVehicle=function(v,c=company){let loc=vehicleSubLocationText(v);return (!loc||loc==='Sin frente operacion'||isLocationActive(c,loc))&&canAccessVehicleBeforeLocationStatus(v,c)};
+const adminSettingsBeforeLocationStatus=adminSettings;
+adminSettings=function(){let result=adminSettingsBeforeLocationStatus(),name=document.getElementById('locName');if(name&&!document.getElementById('locRole'))name.insertAdjacentHTML('beforebegin',`<label>Tipo de sububicacion<select id="locRole"><option>Frente operacion</option><option>Deposito</option><option>Taller</option><option>Deposito y taller</option></select></label>`);let title=adminBox.querySelector('h3');if(title)title.textContent='Sububicaciones';return result};
+saveLocation=function(){let target=locCompany.value,name=(locName.value||'').trim(),area=locArea?.value||'General',role=locRole?.value||'Frente operacion';if(!name)return alert('Escribi el nombre de la sububicacion');locations[target]=locations[target]||[];if(locations[target].some(l=>norm(l)===norm(name)))return alert('Esa sububicacion ya existe');locations[target].push(name);locationAreas[target]=locationAreas[target]||{};locationAreas[target][name]=area;setLocationRole(target,name,role);setLocationActive(target,name,true);saveData();locName.value='';success('Sububicacion agregada y activa.');renderLocations()};
+function locationAreaForCompany(c,l){return locationAreas?.[c]?.[l]||locationAreas?.[c]?.[Object.keys(locationAreas[c]||{}).find(k=>norm(k)===norm(l))]||'-'}
+renderLocations=function(){ensureLocationRoleDefaults();let target=locCompany?.value||company,items=locations[target]||[],fleet=rawFleetByCompany(target);locationsBox.innerHTML=`<div class="notice"><b>Desactivar no borra información.</b> La sububicación deja de aparecer en operaciones nuevas, pero conserva sus vehículos, stock e historial para poder reactivarla.</div><div class="tableScroll"><table><thead><tr><th>Estado</th><th>Empresa</th><th>Área</th><th>Tipo</th><th>Sububicación</th><th>Vehículos</th><th></th></tr></thead><tbody>${items.map(l=>{let assigned=fleet.filter(v=>norm(vehicleSubLocationText(v))===norm(l)),active=isLocationActive(target,l),safeC=encodeURIComponent(target),safeL=encodeURIComponent(l);return `<tr style="opacity:${active?'1':'.58'}"><td><span class="badge ${active?'success':'rejected'}">${active?'Activa':'Desactivada'}</span></td><td>${target}</td><td>${locationAreaForCompany(target,l)}</td><td><span class="badge">${getLocationRole(target,l)}</span></td><td><b>${l}</b>${sharedLocationText(target,l)!=='-'?`<div class="muted">${sharedLocationText(target,l)}</div>`:''}</td><td>${assigned.length?assigned.map(vehicleLabel).join('<br>'):'Sin vehículos asignados'}</td><td><button class="ghost" onclick="editLocationForm('${safeC}','${safeL}')">${icon('edit')} Editar</button> ${active?`<button class="red" onclick="toggleLocationStatus('${safeC}','${safeL}',false)">Desactivar</button> <button class="primary" onclick="assignLocationVehiclesEncoded('${safeC}','${safeL}')">Asignar vehículos</button>`:`<button class="primary" onclick="toggleLocationStatus('${safeC}','${safeL}',true)">Reactivar</button>`}</td></tr>`}).join('')||'<tr><td colspan="7">No hay sububicaciones cargadas.</td></tr>'}</tbody></table></div><div id="locationVehicleBox"></div>`};
+function assignLocationVehiclesEncoded(rawCompany,rawLoc){assignLocationVehicles(decodeURIComponent(rawCompany),decodeURIComponent(rawLoc))}
+function toggleLocationStatus(rawCompany,rawLoc,active){let c=decodeURIComponent(rawCompany),l=decodeURIComponent(rawLoc),vehicleCount=rawFleetByCompany(c).filter(v=>norm(vehicleSubLocationText(v))===norm(l)).length,stockCount=stock.filter(i=>norm(i.loc)===norm(l)).reduce((n,i)=>n+Number(i.qty||0),0),action=active?'reactivar':'desactivar';return confirmStockSave(`¿Deseas <b>${action}</b> la sububicación <b>${l}</b>?${!active?`<br><br>Conservará ${vehicleCount} vehículo(s) y ${stockCount} unidad(es) de stock vinculadas, pero quedará oculta para operaciones nuevas.`:''}`,()=>{setLocationActive(c,l,active);saveData();success(`Sububicación ${active?'reactivada':'desactivada'}.`);renderLocations()})}
+const editLocationFormBeforeStatus=editLocationForm;
+editLocationForm=function(rawCompany,rawLoc){let result=editLocationFormBeforeStatus(rawCompany,rawLoc),button=document.querySelector('#locationVehicleBox button.primary.wide');if(button)button.setAttribute('onclick',`saveLocationEditWithStatus('${rawCompany}','${rawLoc}')`);return result};
+const saveLocationEditBeforeStatus=saveLocationEdit;
+function saveLocationEditWithStatus(rawCompany,rawOldLoc){let c=decodeURIComponent(rawCompany),oldLoc=decodeURIComponent(rawOldLoc),wasActive=isLocationActive(c,oldLoc),result=saveLocationEditBeforeStatus(rawCompany,rawOldLoc),pending=modalConfirmAction;if(typeof pending==='function')modalConfirmAction=()=>{let newLoc=(document.getElementById('editLocName')?.value||oldLoc).trim(),area=document.getElementById('editLocArea')?.value||locationAreaForCompany(c,oldLoc);pending();locationAreas[c]=locationAreas[c]||{};delete locationAreas[c][oldLoc];locationAreas[c][newLoc]=area;delete inactiveLocations[locationStatusId(c,oldLoc)];setLocationActive(c,newLoc,wasActive);saveData();renderLocations()};return result}
+const appDataSnapshotBeforeLocationStatus=appDataSnapshot;
+appDataSnapshot=function(){return {...appDataSnapshotBeforeLocationStatus(),inactiveLocations:{...inactiveLocations}}};
+const applyAppDataSnapshotBeforeLocationStatus=applyAppDataSnapshot;
+applyAppDataSnapshot=function(data){let result=applyAppDataSnapshotBeforeLocationStatus(data);inactiveLocations=data?.inactiveLocations&&typeof data.inactiveLocations==='object'?{...data.inactiveLocations}:{};saveLocationStatus();return result};
+
+/* Areas y sububicaciones se administran dentro de cada empresa. */
+const companyAreaStatusKey=dataKey+'_company_area_status_v1';
+let inactiveCompanyAreas={};try{inactiveCompanyAreas=JSON.parse(localStorage.getItem(companyAreaStatusKey)||'{}')||{}}catch(e){inactiveCompanyAreas={}}
+function companyDataKey(c){return c?.systemKey||c?.name||''}
+function companyAreaId(c,a){return norm(c)+'|||'+norm(a)}
+function isCompanyAreaActive(c,a){return inactiveCompanyAreas[companyAreaId(c,a)]!==false}
+function saveCompanyAreaStatus(){localStorage.setItem(companyAreaStatusKey,JSON.stringify(inactiveCompanyAreas))}
+function allCompanyAreas(c){let values=Object.values(locationAreas?.[c]||{}).filter(Boolean);if(c==='Phelox Ltda')values.push('Taller','Cosecha','Plantacion');if(!values.length)values.push('General');return [...new Set(values)].sort()}
+function activeCompanyAreas(c){return allCompanyAreas(c).filter(a=>isCompanyAreaActive(c,a))}
+const adminCompanyFormBeforeStructure=adminCompanyForm;
+adminCompanyForm=function(id=''){let result=adminCompanyFormBeforeStructure(id),c=companyRegistry.find(row=>row.id===id),box=document.getElementById('adminCompanyEditor');if(!box||!c)return result;let key=companyDataKey(c),areas=allCompanyAreas(key),activeAreas=activeCompanyAreas(key);box.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Áreas y sububicaciones</h3><span class="muted">Estructura interna de ${c.name}. Desactivar conserva todos los registros.</span></div></div><div class="panel"><h3>Áreas de la empresa</h3><div class="form"><input id="newCompanyAreaName" placeholder="Nueva área, por ejemplo Cosecha"><button class="primary" onclick="addCompanyArea('${c.id}')">Agregar área</button></div><div class="tableScroll"><table><thead><tr><th>Área</th><th>Estado</th><th>Sububicaciones</th><th></th></tr></thead><tbody>${areas.map(a=>{let active=isCompanyAreaActive(key,a),count=(locations[key]||[]).filter(l=>norm(locationAreaForCompany(key,l))===norm(a)).length;return `<tr style="opacity:${active?'1':'.58'}"><td><b>${a}</b></td><td><span class="badge ${active?'success':'rejected'}">${active?'Activa':'Desactivada'}</span></td><td>${count}</td><td><button class="${active?'red':'primary'}" onclick="toggleCompanyArea('${c.id}','${encodeURIComponent(a)}',${!active})">${active?'Desactivar':'Reactivar'}</button></td></tr>`}).join('')}</tbody></table></div></div><div class="panel"><h3>Sububicaciones de ${c.name}</h3><div class="form"><select id="locCompany" style="display:none"><option selected>${key}</option></select><label>Área<select id="locArea">${activeAreas.map(a=>`<option>${a}</option>`).join('')||'<option>General</option>'}</select></label><label>Tipo<select id="locRole"><option>Frente operacion</option><option>Deposito</option><option>Taller</option><option>Deposito y taller</option></select></label><input id="locName" placeholder="Nombre de la nueva sububicación"><button class="primary" onclick="saveLocation()">Agregar sububicación</button></div><div id="locationsBox"></div></div></div>`);renderLocations();return result};
+function addCompanyArea(id){let c=companyRegistry.find(row=>row.id===id),key=companyDataKey(c),name=(document.getElementById('newCompanyAreaName')?.value||'').trim();if(!c||!name)return alert('Escribí el nombre del área');if(allCompanyAreas(key).some(a=>norm(a)===norm(name)))return alert('Esa área ya existe');locationAreas[key]=locationAreas[key]||{};locationAreas[key]['__AREA__'+name]=name;inactiveCompanyAreas[companyAreaId(key,name)]=true;saveCompanyAreaStatus();saveData();success('Área agregada.');adminCompanyForm(id)}
+function toggleCompanyArea(id,rawArea,active){let c=companyRegistry.find(row=>row.id===id),key=companyDataKey(c),area=decodeURIComponent(rawArea),count=(locations[key]||[]).filter(l=>norm(locationAreaForCompany(key,l))===norm(area)).length;if(!c)return;return confirmStockSave(`¿Deseas ${active?'reactivar':'desactivar'} el área <b>${area}</b>?${!active?`<br><br>Las ${count} sububicaciones vinculadas conservarán el área, pero no podrá elegirse para nuevas altas.`:''}`,()=>{inactiveCompanyAreas[companyAreaId(key,area)]=!!active;saveCompanyAreaStatus();success(`Área ${active?'reactivada':'desactivada'}.`);adminCompanyForm(id)})}
+const editLocationFormBeforeCompanyAreas=editLocationForm;
+editLocationForm=function(rawCompany,rawLoc){let result=editLocationFormBeforeCompanyAreas(rawCompany,rawLoc),c=decodeURIComponent(rawCompany),loc=decodeURIComponent(rawLoc),current=locationAreaForCompany(c,loc),areas=activeCompanyAreas(c);if(current&&current!=='-'&&!areas.some(a=>norm(a)===norm(current)))areas.unshift(current);let select=document.getElementById('editLocArea');if(select)select.innerHTML=areas.map(a=>`<option ${norm(a)===norm(current)?'selected':''}>${a}</option>`).join('');else{let name=document.getElementById('editLocName');if(name)name.insertAdjacentHTML('afterend',`<label>Área<select id="editLocArea">${areas.map(a=>`<option ${norm(a)===norm(current)?'selected':''}>${a}</option>`).join('')}</select></label>`)}return result};
+const adminSettingsHubBeforeCompanyStructure=adminSettingsHub;
+adminSettingsHub=function(){let result=adminSettingsHubBeforeCompanyStructure();adminBox.querySelectorAll('.card').forEach(card=>{if((card.getAttribute('onclick')||'').includes('adminSettings()'))card.remove()});return result};
+const appDataSnapshotBeforeCompanyAreas=appDataSnapshot;
+appDataSnapshot=function(){return {...appDataSnapshotBeforeCompanyAreas(),inactiveCompanyAreas:{...inactiveCompanyAreas}}};
+const applyAppDataSnapshotBeforeCompanyAreas=applyAppDataSnapshot;
+applyAppDataSnapshot=function(data){let result=applyAppDataSnapshotBeforeCompanyAreas(data);inactiveCompanyAreas=data?.inactiveCompanyAreas&&typeof data.inactiveCompanyAreas==='object'?{...data.inactiveCompanyAreas}:{};saveCompanyAreaStatus();return result};
+
+/* Seleccion de area para todas las empresas, incluido Transportes El Avion. */
+let selectedCompanyArea='';
+const allowedLocationsBeforeCompanyAreaSelection=allowedLocations;
+allowedLocations=function(c=company){let rows=allowedLocationsBeforeCompanyAreaSelection(c);if(selectedCompanyArea&&c===company)rows=rows.filter(l=>norm(locationAreaForCompany(c,l))===norm(selectedCompanyArea));return rows};
+const canAccessLocBeforeCompanyAreaSelection=canAccessLoc;
+canAccessLoc=function(loc,c=company){return (!selectedCompanyArea||c!==company||norm(locationAreaForCompany(c,loc))===norm(selectedCompanyArea))&&canAccessLocBeforeCompanyAreaSelection(loc,c)};
+const canAccessVehicleBeforeCompanyAreaSelection=canAccessVehicle;
+canAccessVehicle=function(v,c=company){let loc=vehicleSubLocationText(v);return (!selectedCompanyArea||c!==company||norm(locationAreaForCompany(c,loc))===norm(selectedCompanyArea))&&canAccessVehicleBeforeCompanyAreaSelection(v,c)};
+function companyAreasForCurrentUser(c){let areas=activeCompanyAreas(c);if(isAdmin())return areas;let locs=allowedLocationsBeforeCompanyAreaSelection(c);return areas.filter(a=>locs.some(l=>norm(locationAreaForCompany(c,l))===norm(a)))}
+function selectCompanyArea(c){let registry=companyRegistry.find(row=>companyDataKey(row)===c),areas=companyAreasForCurrentUser(c);company=c;selectedCompanyArea='';pheloxArea='';companies.innerHTML=`<div class="top"><div><h1>${registry?.name||c}</h1><p class="muted">Elegí el área a la que deseas ingresar.</p></div><button class="ghost" onclick="renderCompanyScreen()">Cambiar empresa</button></div><div class="grid">${areas.map(a=>{let count=activeLocations(c).filter(l=>norm(locationAreaForCompany(c,l))===norm(a)).length;return `<div class="card" onclick="enter('${c}','${encodeURIComponent(a)}')">${cardIcon(getAreaIcon(a))}<h2>${a}</h2><span class="muted">${count} sububicación${count===1?'':'es'} activa${count===1?'':'s'}</span></div>`}).join('')||'<div class="notice">No hay áreas activas habilitadas para tu usuario.</div>'}${isAdmin()?`<div class="card" onclick="openAdminFromCompanies()">${cardIcon('settings')}<h2>Administración</h2><span class="muted">Empresa, áreas, sububicaciones y configuración</span></div>`:''}</div>`}
+function getAreaIcon(area){let n=norm(area);return n.includes('taller')?'wrench':n.includes('cosecha')?'truck':n.includes('plant')?'pin':'box'}
+const enterBeforeCompanyAreaSelection=enter;
+function setMainNavigation(label,action){let button=document.querySelector('#app > .top > button.ghost');if(button){button.textContent=label;button.setAttribute('onclick',action)}}
+enter=function(c,rawArea=''){let area=rawArea?decodeURIComponent(rawArea):'';selectedCompanyArea=area;let result=enterBeforeCompanyAreaSelection(c,c.includes('Phelox')?area:'');pheloxArea=c.includes('Phelox')?area:'';companyTitle.textContent=c+(area?' - '+area:'');setMainNavigation(area?'Cambiar área':'Cambiar empresa',area?'changeCompanyArea()':'home()');return result};
+function changeCompanyArea(){if(formDirty)return confirmDanger('Hay cambios sin guardar. ¿Deseas cambiar de área?',()=>{clearChanges();changeCompanyArea()});app.classList.add('hidden');mainMenu.classList.remove('hidden');module.classList.add('hidden');selectCompanyArea(company);companies.classList.remove('hidden');companyTitle.textContent='';headerLogo.innerHTML=''}
+selectPheloxArea=function(){selectCompanyArea('Phelox Ltda')};
+const openLegacyManagedCompanyBeforeAreaSelection=openLegacyManagedCompany;
+openLegacyManagedCompany=function(id){let c=companyRegistry.find(row=>row.id===id);if(!c)return;if(!c.active&&!isSuperAdmin())return alert('Esta empresa está desactivada');if(c.systemKey)return selectCompanyArea(c.systemKey);return openLegacyManagedCompanyBeforeAreaSelection(id)};
+const homeBeforeCompanyAreaSelection=home;
+home=function(){selectedCompanyArea='';setMainNavigation('Cambiar empresa','home()');return homeBeforeCompanyAreaSelection()};
+const openAdminFromCompaniesBeforeAreaNavigation=openAdminFromCompanies;
+openAdminFromCompanies=function(){let result=openAdminFromCompaniesBeforeAreaNavigation();setMainNavigation('Cambiar empresa','home()');return result};
+const openStockFromCompaniesBeforeAreaNavigation=openStockFromCompanies;
+openStockFromCompanies=function(){let result=openStockFromCompaniesBeforeAreaNavigation();setMainNavigation('Cambiar empresa','home()');return result};
+const renderMenuBeforeCompanyLevelAdministration=renderMenu;
+renderMenu=function(){let result=renderMenuBeforeCompanyLevelAdministration();if(selectedCompanyArea)mainMenu.querySelectorAll('.card').forEach(card=>{if((card.getAttribute('onclick')||'').includes("openModule('admin')"))card.remove()});return result};
+
+/* Resumen de gastos en el nivel de empresa, con filtro por area. */
+let expenseAreaFilter='';
+function openCompanyExpenses(c){
+  if(!isAdmin()&&!canDo('expenses'))return alert('Tu usuario no tiene acceso al resumen de gastos');
+  company=c;selectedCompanyArea='';pheloxArea='';expensesFromCompanies=true;expenseCompanyFilter=c;expenseAreaFilter='';adminFromCompanies=false;
+  companies.classList.add('hidden');app.classList.remove('hidden');mainMenu.classList.add('hidden');module.classList.remove('hidden');
+  companyTitle.textContent='Resumen de gastos - '+c;headerLogo.innerHTML=`<img src="${logos[c]}">`;setMainNavigation('Cambiar empresa','changeCompanyArea()');expensesView();
+}
+const expenseFleetForSummaryBeforeAreaFilter=expenseFleetForSummary;
+expenseFleetForSummary=function(){
+  let rows=expenseFleetForSummaryBeforeAreaFilter();
+  if(expenseAreaFilter&&expenseCompanyFilter)rows=rows.filter(v=>norm(locationAreaForCompany(expenseCompanyFilter,vehicleSubLocationText(v)))===norm(expenseAreaFilter));
+  return rows;
+};
+const expenseLocationsForSummaryBeforeAreaFilter=expenseLocationsForSummary;
+expenseLocationsForSummary=function(){
+  let rows=expenseLocationsForSummaryBeforeAreaFilter();
+  if(expenseAreaFilter&&expenseCompanyFilter)rows=rows.filter(l=>norm(locationAreaForCompany(expenseCompanyFilter,l))===norm(expenseAreaFilter));
+  return rows;
+};
+const expensesViewBeforeAreaFilter=expensesView;
+expensesView=function(){
+  let result=expensesViewBeforeAreaFilter(),companyPanel=Array.from(content.querySelectorAll('.panel')).find(p=>p.querySelector('h2')?.textContent.trim()==='Resumen general de las empresas');
+  if(expensesFromCompanies&&expenseCompanyFilter&&companyPanel){
+    let top=companyPanel.querySelector('.top'),areas=activeCompanyAreas(expenseCompanyFilter);
+    let companySelect=companyPanel.querySelector('#expenseCompanyFilter');
+    if(companySelect)companySelect.setAttribute('onchange',"expenseCompanyFilter=this.value;expenseAreaFilter='';expenseVehicleType='';expenseVehicleBrand='';expenseVehicleLocation='';expenseFrontLocation='';expenseFrontVehicle='';expenseFrontType='';expenseArticleType='';expenseArticleBrand='';expensesView()");
+    top?.insertAdjacentHTML('beforeend',`<label>Área<select id="expenseAreaFilter" onchange="expenseAreaFilter=this.value;expenseVehicleType='';expenseVehicleBrand='';expenseVehicleLocation='';expenseFrontLocation='';expenseFrontVehicle='';expenseFrontType='';expenseArticleType='';expenseArticleBrand='';expensesView()"><option value="">Todas las áreas</option>${areas.map(a=>`<option value="${val(a)}" ${a===expenseAreaFilter?'selected':''}>${a}</option>`).join('')}</select></label>`);
+  }
+  return result;
+};
+const selectCompanyAreaBeforeExpenses=selectCompanyArea;
+selectCompanyArea=function(c){
+  selectCompanyAreaBeforeExpenses(c);
+  let grid=companies.querySelector('.grid');
+  if(grid&&(isAdmin()||canDo('expenses')))grid.insertAdjacentHTML('beforeend',`<div class="card" onclick="openCompanyExpenses('${c}')">${cardIcon('chart')}<h2>Resumen de gastos</h2><span class="muted">Totales y filtros por área, vehículo, frente y artículo</span></div>`);
+};
+const renderMenuBeforeCompanyLevelExpenses=renderMenu;
+renderMenu=function(){
+  let result=renderMenuBeforeCompanyLevelExpenses();
+  if(selectedCompanyArea)mainMenu.querySelectorAll('.card').forEach(card=>{if((card.getAttribute('onclick')||'').includes("openModule('expenses')"))card.remove()});
+  return result;
+};
+
+/* Administracion abierta desde una empresa: no volver automaticamente atras. */
+let administrationFromCompanyLevel=false;
+const openAdminFromCompaniesBeforeCompanyLevelFix=openAdminFromCompanies;
+openAdminFromCompanies=function(){administrationFromCompanyLevel=true;return openAdminFromCompaniesBeforeCompanyLevelFix()};
+adminView=function(){return adminViewBeforePrincipalSections()};
+const backCompaniesFromAdminBeforeCompanyLevelFix=backCompaniesFromAdmin;
+backCompaniesFromAdmin=function(){
+  if(!administrationFromCompanyLevel)return backCompaniesFromAdminBeforeCompanyLevelFix();
+  if(formDirty)return confirmDanger('Hay cambios sin guardar. Desea salir sin guardar los cambios?',()=>{clearChanges();backCompaniesFromAdmin()});
+  administrationFromCompanyLevel=false;adminFromCompanies=false;module.classList.add('hidden');mainMenu.classList.remove('hidden');app.classList.add('hidden');selectCompanyArea(company);companies.classList.remove('hidden');companyTitle.textContent='';headerLogo.innerHTML='';
+};
 
 /* Los administradores pueden crear y descargar copias; restaurar, importar y
    configurar Google Drive permanecen reservados al superadministrador. */
