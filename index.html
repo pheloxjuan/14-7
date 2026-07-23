@@ -5428,6 +5428,74 @@ saveUser=async function(oldId=''){
 const deleteUserBeforeSupabaseUsers=deleteUser;
 deleteUser=function(id){let user=users.find(row=>row.id===id);if(user?.cloudManaged)return alert('Este usuario está guardado en Supabase. La desactivación segura se habilitará junto con la edición en el próximo paso.');return deleteUserBeforeSupabaseUsers(id)};
 
+/* Paginación común para los listados extensos de la aplicación. */
+const pagedTableStates={};
+function pagedTableSafeKey(key){return encodeURIComponent(String(key)).replace(/'/g,'%27')}
+function pagedTableControlsHtml(key,state){
+  let safe=pagedTableSafeKey(key),totalPages=Math.max(1,Math.ceil(state.total/state.size)),start=state.total?(state.page-1)*state.size+1:0,end=Math.min(state.page*state.size,state.total);
+  return `<div class="top listPagination" data-page-key="${safe}" style="margin:12px 0;gap:12px;flex-wrap:wrap"><span class="muted">Mostrando ${start}-${end} de ${state.total} registros · Página ${state.page} de ${totalPages}</span><div><label>Por página <select onchange="setPagedTableSize('${safe}',this.value)"><option value="25" ${state.size===25?'selected':''}>25</option><option value="50" ${state.size===50?'selected':''}>50</option><option value="100" ${state.size===100?'selected':''}>100</option></select></label> <button class="ghost" onclick="changePagedTable('${safe}',-1)" ${state.page<=1?'disabled':''}>Anterior</button> <button class="ghost" onclick="changePagedTable('${safe}',1)" ${state.page>=totalPages?'disabled':''}>Siguiente</button></div></div>`;
+}
+function renderPagedTable(key){
+  let state=pagedTableStates[key];if(!state||!state.table?.isConnected)return;
+  let totalPages=Math.max(1,Math.ceil(state.total/state.size));state.page=Math.min(Math.max(1,state.page),totalPages);
+  let start=(state.page-1)*state.size,end=start+state.size;state.rows.forEach((row,index)=>row.style.display=index>=start&&index<end?'':'none');
+  state.controls.forEach(control=>control.outerHTML=pagedTableControlsHtml(key,state));
+  state.controls=[...document.querySelectorAll(`.listPagination[data-page-key="${pagedTableSafeKey(key)}"]`)];
+}
+function changePagedTable(rawKey,delta){let key=decodeURIComponent(rawKey),state=pagedTableStates[key];if(!state)return;state.page+=Number(delta)||0;renderPagedTable(key);state.table.scrollIntoView({behavior:'smooth',block:'start'})}
+function setPagedTableSize(rawKey,size){let key=decodeURIComponent(rawKey),state=pagedTableStates[key];if(!state)return;state.size=Math.max(10,Number(size)||50);state.page=1;renderPagedTable(key)}
+function paginateTables(root,keyPrefix){
+  if(!root)return;
+  [...root.querySelectorAll('table')].forEach((table,index)=>{
+    let rows=[...table.rows].filter(row=>!row.querySelector('th')),key=`${keyPrefix}:${index}`;
+    root.querySelectorAll(`.listPagination[data-page-key="${pagedTableSafeKey(key)}"]`).forEach(node=>node.remove());
+    if(rows.length<=50)return rows.forEach(row=>row.style.display='');
+    let previous=pagedTableStates[key],signature=`${rows.length}|${rows[0]?.innerText||''}|${rows.at(-1)?.innerText||''}`,state={table,rows,total:rows.length,size:previous?.size||50,page:previous?.signature===signature?previous.page:1,signature,controls:[]};
+    pagedTableStates[key]=state;
+    table.insertAdjacentHTML('beforebegin',pagedTableControlsHtml(key,state));table.insertAdjacentHTML('afterend',pagedTableControlsHtml(key,state));
+    state.controls=[...root.querySelectorAll(`.listPagination[data-page-key="${pagedTableSafeKey(key)}"]`)];renderPagedTable(key);
+  });
+}
+
+const stockConsumptionsBeforePaging=stockConsumptions;
+stockConsumptions=function(){let result=stockConsumptionsBeforePaging.apply(this,arguments);paginateTables(document.getElementById('stockViewBox'),'consumos');return result};
+const renderStockEntriesListBeforePaging=renderStockEntriesList;
+renderStockEntriesList=function(){let result=renderStockEntriesListBeforePaging.apply(this,arguments);paginateTables(document.getElementById('entryListBox'),'ingresos');return result};
+const stockMovesBeforePaging=stockMoves;
+stockMoves=function(){let result=stockMovesBeforePaging.apply(this,arguments);paginateTables(document.getElementById('stockViewBox'),'movimientos');return result};
+const renderStockProductHistoryListBeforePaging=renderStockProductHistoryList;
+renderStockProductHistoryList=function(){let result=renderStockProductHistoryListBeforePaging.apply(this,arguments);paginateTables(document.getElementById('histProductList'),'historial-productos');return result};
+const openStockProductHistoryBeforePaging=openStockProductHistory;
+openStockProductHistory=function(code,filter='todo'){let result=openStockProductHistoryBeforePaging.apply(this,arguments);paginateTables(document.getElementById('stockViewBox'),`producto-${code}-${filter}`);return result};
+const stockRequestsViewBeforePaging=stockRequestsView;
+stockRequestsView=function(){let result=stockRequestsViewBeforePaging.apply(this,arguments);paginateTables(document.getElementById('stockViewBox'),'pedidos-stock');return result};
+const stockAlertsBeforePaging=stockAlerts;
+stockAlerts=function(){let result=stockAlertsBeforePaging.apply(this,arguments);paginateTables(document.getElementById('stockViewBox'),'alertas-stock');return result};
+const showPBrandBeforePaging=showPBrand;
+showPBrand=function(brand){let result=showPBrandBeforePaging.apply(this,arguments);paginateTables(document.getElementById('fleetBox'),`flota-phelox-${brand}`);return result};
+const showAvionTypeBeforePaging=showAvionType;
+showAvionType=function(type){let result=showAvionTypeBeforePaging.apply(this,arguments);paginateTables(document.getElementById('fleetBox'),`flota-avion-${type}`);return result};
+const showVehicleBeforePaging=showVehicle;
+showVehicle=function(plate,mode){let result=showVehicleBeforePaging.apply(this,arguments);paginateTables(document.getElementById('vehicleBox'),`historial-vehiculo-${plate}`);return result};
+const renderAdminFleetListBeforePaging=renderAdminFleetList;
+renderAdminFleetList=function(){let result=renderAdminFleetListBeforePaging.apply(this,arguments);paginateTables(document.getElementById('adminFleetList'),'flota-administracion');return result};
+const renderAdminUsersBeforePaging=renderAdminUsers;
+renderAdminUsers=function(){let result=renderAdminUsersBeforePaging.apply(this,arguments);paginateTables(document.getElementById('adminUsersList'),'usuarios');return result};
+const renderLocationsBeforePaging=renderLocations;
+renderLocations=function(){let result=renderLocationsBeforePaging.apply(this,arguments);paginateTables(document.getElementById('locationsBox'),'sububicaciones');return result};
+const renderExpenseArticleRowsBeforePaging=renderExpenseArticleRows;
+renderExpenseArticleRows=function(){let result=renderExpenseArticleRowsBeforePaging.apply(this,arguments);paginateTables(document.getElementById('expenseArticleBox'),'gastos-articulos');return result};
+const openExpenseArticleHistoryBeforePaging=openExpenseArticleHistory;
+openExpenseArticleHistory=function(rawKey){let result=openExpenseArticleHistoryBeforePaging.apply(this,arguments);paginateTables(document.getElementById('expenseArticleDetail'),`historial-gasto-${rawKey}`);return result};
+const renderExpenseBrandRowsBeforePaging=renderExpenseBrandRows;
+renderExpenseBrandRows=function(){let result=renderExpenseBrandRowsBeforePaging.apply(this,arguments);paginateTables(document.getElementById('expenseBrandBox'),'gastos-marcas');return result};
+const openExpenseBrandBeforePaging=openExpenseBrand;
+openExpenseBrand=function(rawBrand){let result=openExpenseBrandBeforePaging.apply(this,arguments);paginateTables(document.getElementById('expenseBrandDetail'),`gastos-vehiculos-${rawBrand}`);return result};
+const maintenanceJobsViewBeforePaging=maintenanceJobsView;
+maintenanceJobsView=function(){let result=maintenanceJobsViewBeforePaging.apply(this,arguments);paginateTables(document.getElementById('content'),'mantenimientos-pendientes');return result};
+const workOrdersViewBeforePaging=workOrdersView;
+workOrdersView=function(filter='Activas'){let result=workOrdersViewBeforePaging.apply(this,arguments);paginateTables(document.getElementById('content'),`ordenes-${filter}`);return result};
+
 cardIcon=function(name){
   const emojis={wrench:'🔧',truck:'🚛',box:'📦',chart:'📊',settings:'⚙️',tire:'🛞',edit:'✏️',trash:'🗑️',plus:'➕',in:'📥',out:'📤',move:'🔄',history:'📚',user:'👷',pin:'🌱',eye:'👁️'};
   return '<div class="cardIcon" aria-hidden="true"><span class="forestEmoji">'+(emojis[name]||'🌿')+'</span>'+icon(name)+'</div>';
