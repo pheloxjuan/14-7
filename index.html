@@ -4233,13 +4233,13 @@ function ensureXlsxLibrary(){
 async function downloadStockExcelTemplate(){
   if(!isSuperAdmin())return alert('Solo el superadministrador puede descargar plantillas de importacion');
   try{
-    let XLSX=await ensureXlsxLibrary(),rows=[{Codigo:'FIL-001',Articulo:'Filtro de ejemplo',Tipo:'Filtro',Marca:'Marca',Modelo:'Modelo',Ubicacion:'DEPOSITO GENERAL',Cantidad:10,Ideal:20,Minimo:5,Precio:0,Moneda:'UYU'}],sheet=XLSX.utils.json_to_sheet(rows),book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,sheet,'Stock');XLSX.writeFile(book,'plantilla_importacion_stock.xlsx');addBackupAudit('Plantilla Excel descargada','Stock');
+    let XLSX=await ensureXlsxLibrary(),rows=[{Codigo:'FIL-001',Articulo:'Filtro de ejemplo',Tipo:'Filtro',Marca:'Marca',Modelo:'Modelo',Ubicacion:'DEPOSITO GENERAL','Codigo ubicacion deposito':'A03',Cantidad:10,Ideal:20,Minimo:5,Precio:0,Moneda:'UYU'}],sheet=XLSX.utils.json_to_sheet(rows),book=XLSX.utils.book_new();sheet['!cols']=[{wch:16},{wch:30},{wch:18},{wch:18},{wch:20},{wch:24},{wch:28},{wch:12},{wch:12},{wch:12},{wch:14},{wch:12}];XLSX.utils.book_append_sheet(book,sheet,'Stock');XLSX.writeFile(book,'plantilla_importacion_stock.xlsx');addBackupAudit('Plantilla Excel descargada','Stock');
   }catch(e){alert('No se pudo preparar la plantilla de Excel. Verifica la conexion a internet.')}
 }
 function normalizedExcelRow(raw,index){
   let values={};Object.entries(raw||{}).forEach(function(entry){values[norm(entry[0]).replace(/[^a-z0-9]/g,'')]=entry[1]});
   let get=function(){for(let key of arguments){let normalized=norm(key).replace(/[^a-z0-9]/g,'');if(values[normalized]!==undefined&&values[normalized]!=='')return values[normalized]}return ''};
-  return {row:index+2,code:String(get('codigo','code')).trim().toUpperCase(),part:String(get('articulo','producto','repuesto','nombre')).trim(),type:String(get('tipo','tipoarticulo')).trim(),brand:String(get('marca')).trim(),model:String(get('modelo')).trim(),loc:String(get('ubicacion','frente','deposito')).trim(),qty:Number(get('cantidad','stock','actual')),ideal:Number(get('ideal','stockideal'))||0,min:Number(get('minimo','min','critico'))||0,price:Number(get('precio','preciounitario'))||0,currency:String(get('moneda','currency')||'UYU').trim().toUpperCase()};
+  return {row:index+2,code:String(get('codigo','code')).trim().toUpperCase(),part:String(get('articulo','producto','repuesto','nombre')).trim(),type:String(get('tipo','tipoarticulo')).trim(),brand:String(get('marca')).trim(),model:String(get('modelo')).trim(),loc:String(get('ubicacion','frente','deposito')).trim(),warehousePosition:String(get('codigoubicaciondeposito','codigodeubicacionendeposito','ubicacionendeposito','ubicaciondeposito','posicionendeposito','pasilloestante','estante','casillero')).trim().toUpperCase(),qty:Number(get('cantidad','stock','actual')),ideal:Number(get('ideal','stockideal'))||0,min:Number(get('minimo','min','critico'))||0,price:Number(get('precio','preciounitario'))||0,currency:String(get('moneda','currency')||'UYU').trim().toUpperCase()};
 }
 function validateStockExcelRows(rows){
   let valid=[],errors=[],warnings=[],seen=new Set();rows.forEach(function(r){let missing=[];if(!r.code)missing.push('Codigo');if(!r.part)missing.push('Articulo');if(!r.loc)missing.push('Ubicacion');if(!Number.isFinite(r.qty)||r.qty<0)missing.push('Cantidad valida');let key=r.code+'|'+norm(r.loc);if(seen.has(key))missing.push('Codigo y ubicacion duplicados en el archivo');seen.add(key);if(missing.length)errors.push(`Fila ${r.row}: ${missing.join(', ')}`);else{if(!Object.values(locations).flat().some(function(l){return norm(l)===norm(r.loc)}))warnings.push(`Fila ${r.row}: la ubicacion ${r.loc} no existe y sera agregada a ${company}`);valid.push(r)}});return {valid:valid,errors:errors,warnings:warnings}
@@ -4251,7 +4251,7 @@ async function inspectStockExcel(input){
     if(destinationLocation)parsed.forEach(function(r){r.loc=destinationLocation});
     let checked=validateStockExcelRows(parsed),existing=checked.valid.filter(function(r){return stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)})}),created=checked.valid.filter(function(r){return !stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)})});
     window.pendingStockExcelImport=checked.errors.length?null:{fileName:file.name,rows:checked.valid,destinationCompany:destinationCompany,destinationLocation:destinationLocation};
-    box.innerHTML=`<div class="grid"><div class="card"><span class="muted">Filas validas</span><div class="metric">${checked.valid.length}</div></div><div class="card"><span class="muted">Articulos nuevos</span><div class="metric">${created.length}</div></div><div class="card"><span class="muted">Articulos a actualizar</span><div class="metric">${existing.length}</div></div><div class="card"><span class="muted">Errores</span><div class="metric">${checked.errors.length}</div></div></div>${checked.errors.length?`<div class="notice dangerText"><b>Errores que impiden importar:</b><ul>${checked.errors.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.warnings.length?`<div class="notice"><b>Advertencias:</b><ul>${checked.warnings.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.valid.length?`<div class="tableScroll"><table><thead><tr><th>Fila</th><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Cantidad</th><th>Resultado</th></tr></thead><tbody>${checked.valid.slice(0,100).map(function(r){let exists=stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)});return `<tr><td>${r.row}</td><td><b>${r.code}</b></td><td>${r.part}</td><td>${r.loc}</td><td>${r.qty}</td><td>${exists?'Actualizar':'Crear'}</td></tr>`}).join('')}</tbody></table></div>`:''}${window.pendingStockExcelImport?'<button class="primary wide" onclick="confirmStockExcelImport()">Confirmar importacion</button>':''}`;
+    box.innerHTML=`<div class="grid"><div class="card"><span class="muted">Filas validas</span><div class="metric">${checked.valid.length}</div></div><div class="card"><span class="muted">Articulos nuevos</span><div class="metric">${created.length}</div></div><div class="card"><span class="muted">Articulos a actualizar</span><div class="metric">${existing.length}</div></div><div class="card"><span class="muted">Errores</span><div class="metric">${checked.errors.length}</div></div></div>${checked.errors.length?`<div class="notice dangerText"><b>Errores que impiden importar:</b><ul>${checked.errors.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.warnings.length?`<div class="notice"><b>Advertencias:</b><ul>${checked.warnings.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.valid.length?`<div class="tableScroll"><table><thead><tr><th>Fila</th><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Codigo ubicacion deposito</th><th>Cantidad</th><th>Resultado</th></tr></thead><tbody>${checked.valid.slice(0,100).map(function(r){let exists=stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)});return `<tr><td>${r.row}</td><td><b>${r.code}</b></td><td>${r.part}</td><td>${r.loc}</td><td>${r.warehousePosition||'<span class="muted">Sin especificar</span>'}</td><td>${r.qty}</td><td>${exists?'Actualizar':'Crear'}</td></tr>`}).join('')}</tbody></table></div>`:''}${window.pendingStockExcelImport?'<button class="primary wide" onclick="confirmStockExcelImport()">Confirmar importacion</button>':''}`;
     addBackupAudit('Excel de stock probado',`${file.name}: ${checked.valid.length} validas, ${checked.errors.length} errores`);
   }catch(e){window.pendingStockExcelImport=null;box.innerHTML='<div class="notice dangerText"><b>No se pudo leer el archivo.</b> Verifica que sea Excel o CSV valido y que exista conexion para cargar el lector.</div>'}
 }
@@ -4264,8 +4264,8 @@ function applyStockExcelImport(mode){
   let pending=window.pendingStockExcelImport;if(!pending)return;downloadUnifiedBackup(true);let created=0,updated=0;
   pending.rows.forEach(function(r){let loc=pending.destinationLocation||Object.values(locations).flat().find(function(l){return norm(l)===norm(r.loc)})||r.loc,targetCompany=pending.destinationCompany||company;if(!Object.values(locations).flat().some(function(l){return norm(l)===norm(loc)})){locations[targetCompany]=locations[targetCompany]||[];locations[targetCompany].push(loc)}
     let item=stock.find(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(loc)});
-    if(item){item.part=r.part||item.part;item.type=r.type||item.type;item.brand=r.brand||item.brand;item.model=r.model||item.model;item.qty=mode==='add'?(Number(item.qty)||0)+r.qty:r.qty;item.ideal=r.ideal;item.min=r.min;item.price=r.price;item.currency=r.currency||item.currency||'UYU';updated++}
-    else{stock.push({code:r.code,part:r.part,type:r.type||'Articulo',brand:r.brand,model:r.model,loc:loc,qty:r.qty,ideal:r.ideal,min:r.min,price:r.price,currency:r.currency||'UYU',stockCompany:targetCompany||'Ambas empresas',photos:[],compatibleArticleCodes:[]});created++}
+    if(item){item.part=r.part||item.part;item.type=r.type||item.type;item.brand=r.brand||item.brand;item.model=r.model||item.model;if(r.warehousePosition)item.warehousePosition=r.warehousePosition;item.qty=mode==='add'?(Number(item.qty)||0)+r.qty:r.qty;item.ideal=r.ideal;item.min=r.min;item.price=r.price;item.currency=r.currency||item.currency||'UYU';updated++}
+    else{stock.push({code:r.code,part:r.part,type:r.type||'Articulo',brand:r.brand,model:r.model,loc:loc,warehousePosition:r.warehousePosition||'',qty:r.qty,ideal:r.ideal,min:r.min,price:r.price,currency:r.currency||'UYU',stockCompany:targetCompany||'Ambas empresas',photos:[],compatibleArticleCodes:[]});created++}
   });saveData();addBackupAudit('Stock importado desde Excel',`${pending.fileName}: ${created} creados, ${updated} actualizados, modo ${mode}`);window.pendingStockExcelImport=null;clearChanges();success(`Importacion completada. Nuevos: ${created}. Actualizados: ${updated}.`);superAdminBackupCenter();
 }
 async function downloadMaintenanceExcelTemplate(){
@@ -4305,7 +4305,7 @@ superAdminBackupCenter=function(){
   if(csvModule&&!Array.from(csvModule.options).some(function(o){return o.value==='completo'}))csvModule.insertAdjacentHTML('afterbegin','<option value="completo">CSV completo - todos los datos</option>');
   if(csvModule&&!Array.from(csvModule.options).some(function(o){return o.value==='consumos'}))csvModule.insertAdjacentHTML('beforeend','<option value="consumos">Consumos</option><option value="ingresos">Ingresos</option>');
   if(csvCard&&!document.getElementById('backupCsvCompany')){let button=csvCard.querySelector('button');button?.insertAdjacentHTML('beforebegin',`<select id="backupCsvCompany"><option value="">Todas las empresas</option><option>Phelox Ltda</option><option>Transportes El Avion</option></select><select id="backupCsvLocation"><option value="">Todas las ubicaciones</option>${[...new Set(Object.values(locations).flat())].sort().map(function(l){return `<option value="${val(l)}">${l}</option>`}).join('')}</select><label>Desde<input id="backupCsvFrom" type="date"></label><label>Hasta<input id="backupCsvTo" type="date"></label>`)}
-  adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar stock desde Excel</h3><span class="muted">Carga articulos nuevos o actualiza stock existente con vista previa.</span></div><button class="ghost" onclick="downloadStockExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Codigo, Articulo y Cantidad. La columna Ubicacion es obligatoria solamente si elegis "Usar ubicacion indicada en el Excel".<br><span class="muted">Opcionales: Tipo, Marca, Modelo, Ideal, Minimo, Precio y Moneda.</span></div><div class="form"><label>Ubicacion de destino<select id="stockExcelDestination"><option value="">Usar ubicacion indicada en el Excel</option>${Object.entries(locations).map(function(entry){return `<optgroup label="${val(entry[0])}">${entry[1].map(function(l){return `<option value="${val(entry[0]+'|||'+l)}">${l}</option>`}).join('')}</optgroup>`}).join('')}</select></label><label>Como aplicar cantidades<select id="stockExcelQtyMode"><option value="replace">Reemplazar cantidad actual</option><option value="add">Sumar a la cantidad actual</option></select></label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectStockExcel(this)"></label></div><div id="stockExcelPreview"></div></div>`);
+  adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar stock desde Excel</h3><span class="muted">Carga articulos nuevos o actualiza stock existente con vista previa.</span></div><button class="ghost" onclick="downloadStockExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Codigo, Articulo y Cantidad. La columna Ubicacion es obligatoria solamente si elegis "Usar ubicacion indicada en el Excel".<br><span class="muted">Opcionales: Tipo, Marca, Modelo, Codigo ubicacion deposito, Ideal, Minimo, Precio y Moneda. El código interno de ubicación puede completarse más adelante desde la aplicación.</span></div><div class="form"><label>Ubicacion de destino<select id="stockExcelDestination"><option value="">Usar ubicacion indicada en el Excel</option>${Object.entries(locations).map(function(entry){return `<optgroup label="${val(entry[0])}">${entry[1].map(function(l){return `<option value="${val(entry[0]+'|||'+l)}">${l}</option>`}).join('')}</optgroup>`}).join('')}</select></label><label>Como aplicar cantidades<select id="stockExcelQtyMode"><option value="replace">Reemplazar cantidad actual</option><option value="add">Sumar a la cantidad actual</option></select></label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectStockExcel(this)"></label></div><div id="stockExcelPreview"></div></div>`);
   adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar mantenimientos desde Excel</h3><span class="muted">Carga historiales anteriores por matricula sin consumir stock.</span></div><button class="ghost" onclick="downloadMaintenanceExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Fecha, Matricula, Kilometraje y Trabajo.<br><span class="muted">Opcionales: Usuario, Ubicacion, Costo, Moneda y Comentarios. Los repuestos no se descuentan porque son mantenimientos historicos.</span></div><div class="form"><label>Empresa<select id="maintenanceExcelCompany"><option value="">Detectar por matricula</option><option>Phelox Ltda</option><option>Transportes El Avion</option></select></label><label><input id="maintenanceExcelAddCost" type="checkbox" checked> Sumar costos al gasto del vehiculo</label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectMaintenanceExcel(this)"></label></div><div id="maintenanceExcelPreview"></div></div>`);
 };
 function exportRecordCompany(row){
@@ -4581,6 +4581,44 @@ renderStockArticles=function(){
   let visibleStockOriginal=visibleStock;
   visibleStock=function(){return visibleStockOriginal().filter(stockMatchesCompanyFilter)};
   try{return renderStockArticlesBeforeCompanyFilter()}finally{visibleStock=visibleStockOriginal}
+};
+/* Código interno que identifica la posición física del artículo dentro del depósito. */
+function warehousePositionText(item){return String(item?.warehousePosition||'').trim()}
+const newStockItemFormBeforeWarehousePosition=newStockItemForm;
+newStockItemForm=function(){
+  let result=newStockItemFormBeforeWarehousePosition(),locationSelect=document.getElementById('nLoc');
+  if(locationSelect&&!document.getElementById('nWarehousePosition'))locationSelect.insertAdjacentHTML('afterend',`<label>Código de ubicación en depósito<input id="nWarehousePosition" placeholder="Ej: A03"></label>`);
+  return result;
+};
+const saveNewStockItemBeforeWarehousePosition=saveNewStockItem;
+saveNewStockItem=async function(){
+  let position=(document.getElementById('nWarehousePosition')?.value||'').trim().toUpperCase(),code=(document.getElementById('nCode')?.value||'').trim().toUpperCase(),result=await saveNewStockItemBeforeWarehousePosition();
+  if(typeof modalConfirmAction==='function'){let originalAction=modalConfirmAction;modalConfirmAction=function(){originalAction();let item=stock.find(row=>row.code===code);if(item){item.warehousePosition=position;saveData()}}}
+  return result;
+};
+const editStockItemFormBeforeWarehousePosition=editStockItemForm;
+editStockItemForm=function(code){
+  let item=stockItemByValue(code),result=editStockItemFormBeforeWarehousePosition(code),locationSelect=document.getElementById('edLoc');
+  if(item&&locationSelect&&!document.getElementById('edWarehousePosition'))locationSelect.insertAdjacentHTML('afterend',`<label>Código de ubicación en depósito<input id="edWarehousePosition" value="${val(warehousePositionText(item))}" placeholder="Ej: A03"></label>`);
+  return result;
+};
+const saveStockItemEditBeforeWarehousePosition=saveStockItemEdit;
+saveStockItemEdit=async function(code){
+  let item=stockItemByValue(code),position=(document.getElementById('edWarehousePosition')?.value||'').trim().toUpperCase(),result=await saveStockItemEditBeforeWarehousePosition(code);
+  if(typeof modalConfirmAction==='function'){let originalAction=modalConfirmAction;modalConfirmAction=function(){originalAction();if(item){item.warehousePosition=position;saveData()}}}
+  return result;
+};
+const renderStockArticlesBeforeWarehousePosition=renderStockArticles;
+renderStockArticles=function(){
+  let result=renderStockArticlesBeforeWarehousePosition();
+  document.querySelectorAll('#stockTable tbody tr').forEach(row=>{let button=row.querySelector('button[onclick*="editStockItemForm"]');if(!button)return;let match=(button.getAttribute('onclick')||'').match(/'([^']+)'/),item=match?stockItemByValue(match[1]):null,articleCell=row.children[3],position=warehousePositionText(item);if(item&&articleCell&&position&&!articleCell.querySelector('.warehousePosition'))articleCell.insertAdjacentHTML('beforeend',`<div class="warehousePosition muted">Código depósito: <b>${position}</b></div>`)});
+  return result;
+};
+const openStockProductHistoryBeforeWarehousePosition=openStockProductHistory;
+openStockProductHistory=function(code,filter='todo'){
+  let result=openStockProductHistoryBeforeWarehousePosition(code,filter),item=visibleStock().find(row=>row.code===code)||stock.find(row=>row.code===code),grid=document.querySelector('#stockViewBox .grid'),position=warehousePositionText(item);
+  if(grid&&!grid.querySelector('.warehousePositionCard'))grid.insertAdjacentHTML('beforeend',`<div class="card warehousePositionCard"><span class="muted">Código de ubicación en depósito</span><h3>${position||'Sin especificar'}</h3></div>`);
+  return result;
 };
 const workOrdersKey=dataKey+'_work_orders_v1';
 let workOrders=[];
@@ -5271,7 +5309,34 @@ function queueSupabaseFleetSync(task){if(!supabaseSessionActive)return Promise.r
 const saveManagedCompanyBeforeSupabase=saveManagedCompany;saveManagedCompany=function(id){let result=saveManagedCompanyBeforeSupabase(id);queueSupabaseStructureSync();return result};
 const toggleManagedCompanyBeforeSupabase=toggleManagedCompany;toggleManagedCompany=function(id){let result=toggleManagedCompanyBeforeSupabase(id),pending=modalConfirmAction;if(typeof pending==='function')modalConfirmAction=()=>{pending();queueSupabaseStructureSync()};return result};
 const saveLocationBeforeSupabase=saveLocation;saveLocation=function(){let result=saveLocationBeforeSupabase();queueSupabaseStructureSync();return result};
-const saveLocationEditWithStatusBeforeSupabase=saveLocationEditWithStatus;saveLocationEditWithStatus=function(rawCompany,rawOldLoc){let result=saveLocationEditWithStatusBeforeSupabase(rawCompany,rawOldLoc),pending=modalConfirmAction;if(typeof pending==='function')modalConfirmAction=()=>{pending();queueSupabaseStructureSync()};return result};
+async function updateSupabaseLocationRecord(companyName,oldName,newName){
+  let client=await ensureSupabaseClient(),structure=await fetchSupabaseStructure(client),companyRow=structure.companyRows.find(row=>norm(localCompanySystemKey(row))===norm(companyName));
+  if(!companyRow)throw new Error('No se encontró la empresa '+companyName);
+  let oldRow=structure.locationRows.find(row=>row.company_id===companyRow.id&&norm(row.name)===norm(oldName));
+  if(!oldRow)throw new Error('No se encontró la sububicación original '+oldName);
+  let duplicate=structure.locationRows.find(row=>row.company_id===companyRow.id&&row.id!==oldRow.id&&norm(row.name)===norm(newName));
+  if(duplicate){
+    let removed=await client.from('locations').delete().eq('id',duplicate.id);
+    if(removed.error)throw new Error('Ya existe una sububicación con el nombre nuevo y no se pudo quitar el duplicado: '+removed.error.message);
+  }
+  let areaName=document.getElementById('editLocArea')?.value||locationAreaForCompany(companyName,oldName),area=structure.areaRows.find(row=>row.company_id===companyRow.id&&norm(row.name)===norm(areaName)),role=document.getElementById('editLocRole')?.value||getLocationRole(companyName,oldName);
+  let updated=await client.from('locations').update({name:newName,area_id:area?.id||oldRow.area_id||null,location_type:dbLocationType(role),active:isLocationActive(companyName,oldName),updated_at:new Date().toISOString()}).eq('id',oldRow.id).select('id,name').single();
+  if(updated.error)throw updated.error;
+  return updated.data;
+}
+const saveLocationEditWithStatusBeforeSupabase=saveLocationEditWithStatus;
+saveLocationEditWithStatus=function(rawCompany,rawOldLoc){
+  let companyName=decodeURIComponent(rawCompany),oldName=decodeURIComponent(rawOldLoc),result=saveLocationEditWithStatusBeforeSupabase(rawCompany,rawOldLoc),pending=modalConfirmAction;
+  if(typeof pending==='function')modalConfirmAction=async()=>{
+    let newName=(document.getElementById('editLocName')?.value||oldName).trim();
+    try{
+      if(supabaseSessionActive&&norm(newName)!==norm(oldName))await updateSupabaseLocationRecord(companyName,oldName,newName);
+      pending();
+      if(supabaseSessionActive){let client=await ensureSupabaseClient(),structure=await fetchSupabaseStructure(client);applySupabaseStructureToLocal(structure)}
+    }catch(error){alert('No se pudo editar la sububicación en Supabase: '+(error.message||'error desconocido'))}
+  };
+  return result;
+};
 const toggleLocationStatusBeforeSupabase=toggleLocationStatus;toggleLocationStatus=function(rawCompany,rawLoc,active){let result=toggleLocationStatusBeforeSupabase(rawCompany,rawLoc,active),pending=modalConfirmAction;if(typeof pending==='function')modalConfirmAction=()=>{pending();queueSupabaseStructureSync()};return result};
 const addCompanyAreaBeforeSupabase=addCompanyArea;addCompanyArea=function(id){let result=addCompanyAreaBeforeSupabase(id);queueSupabaseStructureSync();return result};
 const toggleCompanyAreaBeforeSupabase=toggleCompanyArea;toggleCompanyArea=function(id,rawArea,active){let result=toggleCompanyAreaBeforeSupabase(id,rawArea,active),pending=modalConfirmAction;if(typeof pending==='function')modalConfirmAction=()=>{pending();queueSupabaseStructureSync()};return result};
