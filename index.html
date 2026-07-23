@@ -4869,46 +4869,18 @@ appDataSnapshot=function(){return {...appDataSnapshotBeforeMaintenanceJobs(),mai
 const applyAppDataSnapshotBeforeMaintenanceJobs=applyAppDataSnapshot;
 applyAppDataSnapshot=function(data){let result=applyAppDataSnapshotBeforeMaintenanceJobs(data);maintenanceJobs=Array.isArray(data?.maintenanceJobs)?data.maintenanceJobs:maintenanceJobs;localStorage.setItem(maintenanceJobsKey,JSON.stringify(maintenanceJobs));return result}
 
-/* Limpieza unica de la flota ficticia y de todos sus registros vinculados.
-   La marca evita volver a limpiar cuando luego se importe la flota real. */
+/* Las limpiezas automáticas quedaron deshabilitadas.
+   Los datos reales solo pueden eliminarse mediante una acción manual confirmada. */
 const fleetCleanupKey=dataKey+'_fleet_cleanup_20260720_v2';
 function clearFictitiousFleetDataOnce(){
-  if(typeof localStorage==='undefined'||localStorage.getItem(fleetCleanupKey)==='done')return;
-  pheloxFleet.splice(0,pheloxFleet.length);
-  avionFleet.splice(0,avionFleet.length);
-  hist.splice(0,hist.length);
-  tireChanges.splice(0,tireChanges.length);
-  maintenanceJobs.splice(0,maintenanceJobs.length);
-  workOrders.splice(0,workOrders.length);
-  moves=moves.filter(m=>!m.vehicle||m.vehicle==='-');
-  appMessages=appMessages.filter(m=>{
-    let type=norm(m.type||''),title=norm(m.title||'');
-    return !m.vehiclePlate&&!type.includes('reparacion')&&!type.includes('mantenimiento')&&!title.includes('reparacion')&&!title.includes('mantenimiento');
-  });
-  users.forEach(u=>{
-    u.vehicles=u.vehicles||{};
-    Object.keys(u.vehicles).forEach(c=>u.vehicles[c]=[]);
-  });
-  localStorage.setItem(maintenanceJobsKey,'[]');
-  localStorage.setItem(workOrdersKey,'[]');
-  localStorage.setItem(fleetCleanupKey,'done');
-  saveData();
+  if(typeof localStorage!=='undefined')localStorage.setItem(fleetCleanupKey,'disabled');
 }
 clearFictitiousFleetDataOnce();
 
-/* Limpieza unica del stock de demostracion para comenzar la carga real. */
+/* Nunca vaciar stock, movimientos o pedidos automáticamente al iniciar. */
 const stockCleanupKey=dataKey+'_stock_cleanup_20260720_v2';
 function clearFictitiousStockDataOnce(){
-  if(typeof localStorage==='undefined'||localStorage.getItem(stockCleanupKey)==='done')return;
-  stock=[];
-  moves=[];
-  stockRequests=[];
-  appMessages=appMessages.filter(m=>{
-    let type=norm(m.type||''),title=norm(m.title||'');
-    return !type.includes('stock')&&!type.includes('pedido')&&!title.includes('stock')&&!title.includes('pedido');
-  });
-  localStorage.setItem(stockCleanupKey,'done');
-  saveData();
+  if(typeof localStorage!=='undefined')localStorage.setItem(stockCleanupKey,'disabled');
 }
 clearFictitiousStockDataOnce();
 
