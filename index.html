@@ -3328,7 +3328,7 @@ function adminCompanyVehicleOptions(rows,selectedValue){
 }
 function adminCompanyFleetFilteredRows(){
   let locationValue=document.getElementById('adminFleetLocation')?.value||'',brandValue=norm(document.getElementById('adminFleetBrand')?.value||''),plateValue=norm(document.getElementById('adminFleetPlate')?.value||'');
-  return adminCompanyVehicles().filter(function(v){return (!locationValue||norm(vehicleSubLocationText(v))===norm(locationValue))&&(!brandValue||norm(v.brand).includes(brandValue))&&(!plateValue||norm(v.plate).includes(plateValue))});
+  return adminCompanyVehicles().filter(function(v){return (!locationValue||vehicleHasLocation(v,locationValue))&&(!brandValue||norm(v.brand).includes(brandValue))&&(!plateValue||norm(v.plate).includes(plateValue))});
 }
 function renderAdminCompanyFleetRows(){
   let box=document.getElementById('adminCompanyFleetBox');if(!box)return;
@@ -3344,7 +3344,7 @@ fleetView=function(){
 
 function adminMaintenanceFilteredVehicles(){
   let locationValue=document.getElementById('adminMaintLocationFilter')?.value||'',brandValue=norm(document.getElementById('adminMaintBrandFilter')?.value||''),plateValue=norm(document.getElementById('adminMaintPlateFilter')?.value||'');
-  return adminCompanyVehicles().filter(function(v){return (!locationValue||norm(vehicleSubLocationText(v))===norm(locationValue))&&(!brandValue||norm(v.brand)===brandValue)&&(!plateValue||norm(v.plate).includes(plateValue))});
+  return adminCompanyVehicles().filter(function(v){return (!locationValue||vehicleHasLocation(v,locationValue))&&(!brandValue||norm(v.brand)===brandValue)&&(!plateValue||norm(v.plate).includes(plateValue))});
 }
 function renderAdminMaintenanceVehicleChoices(){
   let select=document.getElementById('mVehicle');if(!select)return;
@@ -3366,10 +3366,11 @@ selectedMaintenanceVehicle=function(){
 adminMaintenanceVehicleChanged=function(){
   let record=adminVehicleRecord(document.getElementById('mVehicle')?.value),companyBox=document.getElementById('adminMaintenanceCompany');
   if(!record||record.company!==company){if(companyBox)companyBox.innerHTML='No hay vehiculos que coincidan con los filtros.';if(document.getElementById('vehicleServiceCard'))vehicleServiceCard.innerHTML='';renderConsumed();return}
-  let preferred=vehicleSubLocationText(record.vehicle),companyLocs=locations[company]||[];
+  let selectedFilter=document.getElementById('adminMaintLocationFilter')?.value||'',vehicleLocs=vehicleSubLocations(record.vehicle);
+  let preferred=selectedFilter&&vehicleHasLocation(record.vehicle,selectedFilter)?selectedFilter:(vehicleLocs[0]||vehicleSubLocationText(record.vehicle)),companyLocs=locations[company]||[];
   if(!companyLocs.some(function(x){return norm(x)===norm(preferred)}))preferred=companyLocs[0]||preferred;
   ['mLoc','mPartsLoc','mOilLoc'].forEach(function(id){let el=document.getElementById(id);if(el&&preferred)el.value=preferred});
-  if(companyBox)companyBox.innerHTML='🏢 <b>'+company+'</b> · 🚙 '+vehicleLabel(record.vehicle)+' · 📍 '+vehicleSubLocationText(record.vehicle);
+  if(companyBox)companyBox.innerHTML='🏢 <b>'+company+'</b> · 🚙 '+vehicleLabel(record.vehicle)+' · 📍 '+vehicleLocationsText(record.vehicle);
   renderVehicleServiceCard();renderConsumed();
 };
 serviceForm=function(){
