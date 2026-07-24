@@ -3399,7 +3399,7 @@ function repairRequestVehicleFromValue(value){
 function filterRepairRequestVehicles(){
   let type=document.getElementById('rrVehicleType')?.value||'',select=document.getElementById('rrVehicle');
   if(!select)return;
-  let current=select.value,choices=repairRequestVehicleChoices.filter(function(choice){return !type||choice.empty||choice.type===type});
+  let current=select.value,choices=repairRequestVehicleChoices.filter(function(choice){return !type||choice.empty||norm(choice.type)===norm(type)});
   select.innerHTML=choices.map(function(choice){return `<option value="${val(choice.value)}">${choice.label}</option>`}).join('');
   if(choices.some(function(choice){return choice.value===current}))select.value=current;
 }
@@ -3410,7 +3410,8 @@ function addRepairRequestVehicleTypeFilter(){
     let vehicle=repairRequestVehicleFromValue(option.value);
     return {value:option.value,label:option.textContent,type:(vehicle?.type||'').trim()||'Sin tipo especificado',empty:!option.value};
   });
-  let types=[...new Set(repairRequestVehicleChoices.filter(function(choice){return !choice.empty}).map(function(choice){return choice.type}).filter(Boolean))].sort();
+  let typeMap={};repairRequestVehicleChoices.filter(function(choice){return !choice.empty}).forEach(function(choice){let key=norm(choice.type);if(key&&!typeMap[key])typeMap[key]=choice.type});
+  let types=Object.values(typeMap).sort(function(a,b){return a.localeCompare(b)});
   let label=document.createElement('label');
   label.innerHTML=`Tipo de vehiculo<select id="rrVehicleType" onchange="filterRepairRequestVehicles()"><option value="">Todos los tipos</option>${types.map(function(type){return `<option value="${val(type)}">${type}</option>`}).join('')}</select>`;
   let vehicleLabel=vehicleSelect.closest('label');
@@ -5160,6 +5161,53 @@ async function loginWithSupabase(){
   }catch(error){try{await supabaseClient?.auth.signOut()}catch(e){}supabaseSessionActive=false;showSupabaseLogin('No se pudo ingresar: '+(error.message||'revisa los datos'));}
 }
 renderLoginUsers=function(){showSupabaseLogin()};
+
+async function loadSupabaseRepairRecipients(){
+  if(!supabaseSessionActive)return;
+  let select=document.getElementById('rrTo'),context=repairRequestSelectedContext();
+  if(!select||!context.company)return;
+  select.disabled=true;select.innerHTML='<option value="">Cargando personal habilitado...</option>';
+  try{
+    let client=await ensureSupabaseClient(),locationNames=(context.locations?.length?context.locations:[context.location]).filter(Boolean);
+    let result=await client.rpc('repair_recipient_candidates',{p_company_name:context.company,p_location_names:locationNames});
+    if(result.error)throw result.error;
+    let candidates=(result.data||[]).map(function(row){
+      let role=supabaseRoleToLocal(row.role),user={
+        id:row.username,name:row.full_name,role,active:true,pass:'',cloudManaged:true,supabaseId:row.profile_id,
+        perms:defaultPermsForRole(role),locations:{},areas:{},vehicles:{},vehiclesAll:{}
+      };
+      user.locations[context.company]=row.location_names||[];
+      user.areas[context.company]=row.area_names||[];
+      user.vehicles[context.company]=context.vehicle?[context.vehicle.plate]:[];
+      user.vehiclesAll[context.company]=false;
+      let existing=users.find(function(item){return item.supabaseId===row.profile_id||norm(item.id)===norm(row.username)});
+      if(existing)Object.assign(existing,user);else users.push(user);
+      return existing||user;
+    });
+    select.innerHTML=candidates.map(function(user){return `<option value="${val(user.id)}">${val(user.name)} - ${val(user.role)}</option>`}).join('')||'<option value="">No hay personal habilitado en esta ubicación o área</option>';
+    select.disabled=!candidates.length;
+  }catch(error){
+    select.innerHTML='<option value="">No se pudo cargar el personal habilitado</option>';select.disabled=true;
+    let form=select.closest('.form');if(form&&!document.getElementById('repairRecipientsError'))form.insertAdjacentHTML('afterbegin',`<div id="repairRecipientsError" class="wide notice dangerText">No se pudo consultar el personal en Supabase: ${val(error.message||'error desconocido')}</div>`);
+  }
+}
+const repairRequestFormBeforeCloudRecipients=repairRequestForm;
+repairRequestForm=function(){
+  let result=repairRequestFormBeforeCloudRecipients();
+  if(supabaseSessionActive){
+    let vehicleSelect=document.getElementById('rrVehicle');
+    if(vehicleSelect)vehicleSelect.addEventListener('change',function(){loadSupabaseRepairRecipients()});
+    loadSupabaseRepairRecipients();
+  }
+  return result;
+};
+const filterRepairRequestVehiclesBeforeCloudRecipients=filterRepairRequestVehicles;
+filterRepairRequestVehicles=function(){
+  let result=filterRepairRequestVehiclesBeforeCloudRecipients();
+  if(supabaseSessionActive)loadSupabaseRepairRecipients();
+  return result;
+};
+
 const logoutBeforeSupabasePhaseOne=logout;
 logout=async function(){
   if(formDirty)return logoutBeforeSupabasePhaseOne();
