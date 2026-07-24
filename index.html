@@ -5607,7 +5607,7 @@ async function loadCloudStock(){
     let [articlesResult,balancesResult,companiesResult,locationsResult,articleCompaniesResult]=await Promise.all([
       client.from('articles').select('id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active'),
       client.from('stock_balances').select('article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at'),
-      client.from('companies').select('id,name,system_key'),
+      client.from('companies').select('id,name'),
       client.from('locations').select('id,company_id,name,active'),
       client.from('article_companies').select('article_id,company_id')
     ]);
@@ -5705,7 +5705,7 @@ function cloudImportRows(rows,destinationLocation=''){
 }
 async function detectCloudStockBalanceCompany(client,rows,forcedCompany=''){
   if(forcedCompany)return forcedCompany;
-  let locationNames=[...new Set(rows.map(row=>norm(row.location)))],companiesResult=await client.from('companies').select('id,name,system_key'),locationsResult=await client.from('locations').select('company_id,name,active').eq('active',true);
+  let locationNames=[...new Set(rows.map(row=>norm(row.location)))],companiesResult=await client.from('companies').select('id,name'),locationsResult=await client.from('locations').select('company_id,name,active').eq('active',true);
   if(companiesResult.error)throw companiesResult.error;if(locationsResult.error)throw locationsResult.error;
   let scores=(companiesResult.data||[]).map(c=>{let names=new Set((locationsResult.data||[]).filter(l=>l.company_id===c.id).map(l=>norm(l.name)));return {name:localCompanySystemKey(c),matches:locationNames.filter(name=>names.has(name)).length,total:locationNames.length}});
   scores.sort((a,b)=>b.matches-a.matches);
