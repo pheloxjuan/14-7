@@ -5590,4 +5590,140 @@ cardIcon=function(name){
   const emojis={wrench:'🔧',truck:'🚛',box:'📦',chart:'📊',settings:'⚙️',tire:'🛞',edit:'✏️',trash:'🗑️',plus:'➕',in:'📥',out:'📤',move:'🔄',history:'📚',user:'👷',pin:'🌱',eye:'👁️'};
   return '<div class="cardIcon" aria-hidden="true"><span class="forestEmoji">'+(emojis[name]||'🌿')+'</span>'+icon(name)+'</div>';
 };
+
+/* STOCK NUBE: Supabase es la unica fuente de verdad cuando hay sesion activa. */
+let cloudStockReady=false,cloudStockLoading=false,cloudStockBaseline=new Map(),cloudStockQueue=Promise.resolve();
+function cloudStockKey(item){return `${item?._cloudArticleId||item?.code||''}|${item?._cloudLocationId||norm(item?.loc||'')}`}
+function cloudWarehousePositions(item){
+  if(Array.isArray(item?.warehousePositionDetails))return item.warehousePositionDetails;
+  let values=warehousePositionValues(item);
+  return values.map(code=>({code,quantity:null}));
+}
+async function loadCloudStock(){
+  if(!supabaseSessionActive||cloudStockLoading)return;
+  cloudStockLoading=true;
+  try{
+    let client=await ensureSupabaseClient();
+    let [articlesResult,balancesResult,companiesResult,locationsResult]=await Promise.all([
+      client.from('articles').select('id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active'),
+      client.from('stock_balances').select('article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at'),
+      client.from('companies').select('id,name,system_key'),
+      client.from('locations').select('id,company_id,name,active')
+    ]);
+    [articlesResult,balancesResult,companiesResult,locationsResult].forEach(result=>{if(result.error)throw result.error});
+    let articlesById=new Map((articlesResult.data||[]).map(row=>[row.id,row]));
+    let companiesById=new Map((companiesResult.data||[]).map(row=>[row.id,localCompanySystemKey(row)]));
+    let locationsById=new Map((locationsResult.data||[]).map(row=>[row.id,row]));
+    let cloudRows=(balancesResult.data||[]).map(balance=>{
+      let article=articlesById.get(balance.article_id),location=locationsById.get(balance.location_id);
+      if(!article||!location)return null;
+      let positions=Array.isArray(balance.warehouse_positions)?balance.warehouse_positions:[],positionCodes=positions.map(p=>typeof p==='string'?p:p?.code).filter(Boolean);
+      return {
+        code:article.code,part:article.name,type:article.article_type||'Articulo',brand:article.brand||'',model:article.model||'',
+        loc:location.name,qty:Number(balance.quantity||0),ideal:Number(article.ideal_stock||0),min:Number(article.minimum_stock||0),
+        price:Number(balance.average_cost||0),currency:balance.currency||'UYU',stockCompany:companiesById.get(balance.company_id)||'',
+        warehousePosition:positionCodes.join(' / '),warehousePositions:positionCodes,warehousePositionDetails:positions,
+        photos:[],compatibleArticleCodes:[],_cloudArticleId:balance.article_id,_cloudLocationId:balance.location_id,
+        _cloudCompanyId:balance.company_id,_cloudVersion:Number(balance.version||0)
+      };
+    }).filter(Boolean);
+    stock.splice(0,stock.length,...cloudRows);
+    cloudStockBaseline=new Map(cloudRows.map(item=>[cloudStockKey(item),JSON.stringify({
+      qty:Number(item.qty||0),price:Number(item.price||0),currency:item.currency||'UYU',
+      positions:cloudWarehousePositions(item),version:Number(item._cloudVersion||0)
+    })]));
+    cloudStockReady=true;
+    saveLocalDataWithoutStock();
+  }finally{cloudStockLoading=false}
+}
+function saveLocalDataWithoutStock(){
+  if(typeof localStorage==='undefined')return;
+  try{
+    let raw=JSON.parse(localStorage.getItem(dataKey)||'{}');raw.stock=[];raw.moves=[];
+    raw.cloudStockNotice='El stock se carga exclusivamente desde Supabase';
+    localStorage.setItem(dataKey,JSON.stringify(raw));
+  }catch(error){console.warn('No se pudo limpiar la copia local de stock',error)}
+}
+const saveDataBeforeCloudStock=saveData;
+saveData=function(){
+  saveDataBeforeCloudStock();
+  saveLocalDataWithoutStock();
+  if(supabaseSessionActive&&cloudStockReady&&!cloudStockLoading)scheduleCloudStockChanges();
+};
+function scheduleCloudStockChanges(){
+  let changed=stock.filter(item=>{
+    if(!item._cloudArticleId||!item._cloudLocationId)return false;
+    let before=cloudStockBaseline.get(cloudStockKey(item));
+    if(!before)return false;
+    let parsed=JSON.parse(before);
+    return parsed.qty!==Number(item.qty||0)||parsed.price!==Number(item.price||0)||parsed.currency!==(item.currency||'UYU')||
+      JSON.stringify(parsed.positions)!==JSON.stringify(cloudWarehousePositions(item));
+  });
+  changed.forEach(item=>{
+    let snapshot={...item,warehousePositionDetails:cloudWarehousePositions(item)};
+    cloudStockQueue=cloudStockQueue.then(()=>persistCloudStockChange(snapshot)).catch(error=>{
+      console.error('No se pudo sincronizar stock',error);
+      cloudStockReady=false;
+      alert('El cambio no quedó guardado en la nube: '+(error.message||'error desconocido')+' Se recargará el stock verdadero.');
+      return loadCloudStock();
+    });
+  });
+}
+async function persistCloudStockChange(item){
+  let baselineRaw=cloudStockBaseline.get(cloudStockKey(item));if(!baselineRaw)return;
+  let baseline=JSON.parse(baselineRaw),client=await ensureSupabaseClient();
+  let result=await client.rpc('set_stock_balance',{
+    p_article_id:item._cloudArticleId,p_location_id:item._cloudLocationId,p_quantity:Number(item.qty||0),
+    p_average_cost:Number(item.price||0),p_currency:item.currency||'UYU',
+    p_positions:item.warehousePositionDetails||[],p_expected_version:Number(baseline.version||0)
+  });
+  if(result.error)throw result.error;
+  item._cloudVersion=Number(result.data);
+  let live=stock.find(row=>row._cloudArticleId===item._cloudArticleId&&row._cloudLocationId===item._cloudLocationId);
+  if(live)live._cloudVersion=item._cloudVersion;
+  cloudStockBaseline.set(cloudStockKey(item),JSON.stringify({
+    qty:Number(item.qty||0),price:Number(item.price||0),currency:item.currency||'UYU',
+    positions:item.warehousePositionDetails||[],version:item._cloudVersion
+  }));
+}
+function cloudImportRows(rows,destinationLocation=''){
+  let groups=new Map();
+  rows.forEach(row=>{
+    let location=destinationLocation||row.loc,key=`${row.code}|${norm(location)}`,group=groups.get(key);
+    if(!group){group={code:row.code,name:row.part,type:row.type||'Articulo',brand:row.brand||'',model:row.model||'',location,
+      quantity:0,ideal:Number(row.ideal||0),minimum:Number(row.min||0),price:Number(row.price||0),currency:row.currency||'UYU',positions:[]};groups.set(key,group)}
+    group.quantity+=Number(row.qty||0);
+    group.ideal=Number(row.ideal||group.ideal||0);group.minimum=Number(row.min||group.minimum||0);
+    group.price=Number(row.price||group.price||0);group.currency=row.currency||group.currency||'UYU';
+    let position=(row.warehousePosition||'').trim();
+    if(position){let existing=group.positions.find(p=>p.code===position);if(existing)existing.quantity+=Number(row.qty||0);else group.positions.push({code:position,quantity:Number(row.qty||0)})}
+  });
+  return [...groups.values()];
+}
+applyStockExcelImport=async function(mode,duplicateMode='add'){
+  let pending=window.pendingStockExcelImport;if(!pending)return;
+  if(!supabaseSessionActive)return alert('Debes ingresar a la aplicación conectada a Supabase para importar stock');
+  let cloudRows=cloudImportRows(pending.rows,pending.destinationLocation||'');
+  try{
+    closeModal();
+    modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox success"><div class="modalTitle">Importando a la nube</div><p>Guardando ${cloudRows.length} saldos en Supabase. No cierres esta ventana.</p></div></div>`;
+    let client=await ensureSupabaseClient(),result=await client.rpc('import_stock_rows',{
+      p_company_name:pending.destinationCompany||company,p_rows:cloudRows,p_quantity_mode:mode
+    });
+    if(result.error)throw result.error;
+    await loadCloudStock();window.pendingStockExcelImport=null;closeModal();clearChanges();
+    addBackupAudit('Stock importado a Supabase',`${pending.fileName}: ${result.data?.created||0} creados, ${result.data?.updated||0} actualizados`);
+    success(`Importación guardada en la nube. Nuevos: ${result.data?.created||0}. Actualizados: ${result.data?.updated||0}.`);
+  }catch(error){closeModal();alert('No se importó el stock: '+(error.message||'error desconocido'))}
+};
+const loginWithSupabaseBeforeCloudStock=loginWithSupabase;
+loginWithSupabase=async function(){
+  await loginWithSupabaseBeforeCloudStock();
+  if(supabaseSessionActive){
+    try{await loadCloudStock();renderCompanyScreen()}
+    catch(error){await supabaseClient?.auth.signOut();supabaseSessionActive=false;cloudStockReady=false;showSupabaseLogin('No se pudo cargar el stock real de Supabase: '+(error.message||'error desconocido'))}
+  }
+};
+const logoutBeforeCloudStock=logout;
+logout=async function(){cloudStockReady=false;cloudStockBaseline.clear();stock.splice(0,stock.length);saveLocalDataWithoutStock();return logoutBeforeCloudStock()};
 </script></body></html>
