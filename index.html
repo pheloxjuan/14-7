@@ -3393,8 +3393,11 @@ repairRequestForm=function(){
 
 var repairRequestVehicleChoices=[];
 function repairRequestVehicleFromValue(value){
-  let text=String(value||''),plate=text.includes('||')?text.split('||').pop():text;
-  return [...pheloxFleet,...avionFleet].find(function(v){return String(v.plate)===plate});
+  let record=typeof adminVehicleRecord==='function'?adminVehicleRecord(value):null;
+  if(record?.vehicle)return record.vehicle;
+  let plate=String(value||'');
+  try{plate=decodeURIComponent(plate)}catch(e){}
+  return [...pheloxFleet,...avionFleet].find(function(v){return norm(v.plate)===norm(plate)});
 }
 function filterRepairRequestVehicles(){
   let type=document.getElementById('rrVehicleType')?.value||'',select=document.getElementById('rrVehicle');
