@@ -5156,7 +5156,7 @@ async function loginWithSupabase(){
   if(!identifier.trim()||!password)return alert('Completa usuario y contraseña');
   if(button){button.disabled=true;button.textContent='Ingresando...'}
   try{
-    let client=await ensureSupabaseClient(),auth=await client.auth.signInWithPassword({email:supabaseEmailForLogin(identifier),password});if(auth.error)throw auth.error;
+    let client=await ensureSupabaseClient(),auth=await client.auth.signInWithPassword({email:supabaseEmailForLogin(identifier),password});if(auth.error)throw auth.error;window.activeSupabaseSession=auth.data.session;
     let result=await client.from('profiles').select('id,username,full_name,phone,role,active,hourly_rate,hourly_currency,must_change_password').eq('id',auth.data.user.id).single();if(result.error)throw result.error;
     let p=result.data;if(!p.active){await client.auth.signOut();throw new Error('Usuario desactivado')}
     let role=supabaseRoleToLocal(p.role),all=['Superadministrador','Administrador'].includes(role);
@@ -5718,6 +5718,10 @@ applyStockExcelImport=async function(mode,duplicateMode='add'){
   try{
     let client=await ensureSupabaseClient(),sessionResult=await client.auth.getSession();
     if(sessionResult.error)throw sessionResult.error;
+    if(!sessionResult.data?.session?.user&&window.activeSupabaseSession?.access_token&&window.activeSupabaseSession?.refresh_token){
+      sessionResult=await client.auth.setSession({access_token:window.activeSupabaseSession.access_token,refresh_token:window.activeSupabaseSession.refresh_token});
+      if(sessionResult.error)throw sessionResult.error;
+    }
     if(!sessionResult.data?.session?.user)return alert('Tu sesión venció. Salí de la aplicación, volvé a ingresar y repetí la importación.');
     supabaseSessionActive=true;
     closeModal();
