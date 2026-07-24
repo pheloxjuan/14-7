@@ -3410,7 +3410,7 @@ function addRepairRequestVehicleTypeFilter(){
     let vehicle=repairRequestVehicleFromValue(option.value);
     return {value:option.value,label:option.textContent,type:(vehicle?.type||'').trim()||'Sin tipo especificado',empty:!option.value};
   });
-  let types=[...new Set([...fleetTypeList(),...repairRequestVehicleChoices.map(function(choice){return choice.type}).filter(Boolean)])].sort();
+  let types=[...new Set(repairRequestVehicleChoices.filter(function(choice){return !choice.empty}).map(function(choice){return choice.type}).filter(Boolean))].sort();
   let label=document.createElement('label');
   label.innerHTML=`Tipo de vehiculo<select id="rrVehicleType" onchange="filterRepairRequestVehicles()"><option value="">Todos los tipos</option>${types.map(function(type){return `<option value="${val(type)}">${type}</option>`}).join('')}</select>`;
   let vehicleLabel=vehicleSelect.closest('label');
@@ -4084,12 +4084,20 @@ function repairRequesterNeedsLocalRecipient(){return currentUser?.role==='Chofer
 function repairRequestSelectedContext(){
   let value=document.getElementById('rrVehicle')?.value||'',vehicle=typeof repairRequestVehicleFromValue==='function'?repairRequestVehicleFromValue(value):null;
   if(!vehicle)vehicle=[...pheloxFleet,...avionFleet].find(function(v){return v.plate===value});
-  let vehicleCompany=vehicle?(avionFleet.includes(vehicle)?'Transportes El Avion':'Phelox Ltda'):company,location=vehicle?vehicleSubLocationText(vehicle):((currentUser?.locations?.[vehicleCompany]||[])[0]||'');
-  return {vehicle:vehicle,company:vehicleCompany,location:location};
+  let vehicleCompany=vehicle?(avionFleet.includes(vehicle)?'Transportes El Avion':'Phelox Ltda'):company;
+  let vehicleLocations=vehicle?vehicleSubLocations(vehicle):(currentUser?.locations?.[vehicleCompany]||[]).slice();
+  let location=vehicleLocations[0]||'';
+  return {vehicle:vehicle,company:vehicleCompany,location:location,locations:vehicleLocations};
 }
 function repairRecipientInLocation(user,context){
-  if(!user||user.id===currentUser?.id||!context.location)return false;
-  return (user.locations?.[context.company]||[]).some(function(loc){return norm(loc)===norm(context.location)});
+  if(!user||user.id===currentUser?.id)return false;
+  let requestedLocations=(context.locations?.length?context.locations:[context.location]).filter(Boolean),requestedNorms=requestedLocations.map(norm);
+  if(!requestedNorms.length)return false;
+  let userLocations=user.locations?.[context.company]||[];
+  if(userLocations.some(function(loc){return requestedNorms.includes(norm(loc))}))return true;
+  let userAreas=(user.areas?.[context.company]||[]).map(norm);
+  if(userAreas.length&&requestedLocations.some(function(loc){return userAreas.includes(norm(locationAreaForCompany(context.company,loc)))}))return true;
+  return !!user.vehiclesAll?.[context.company]||(user.vehicles?.[context.company]||[]).some(function(plate){return context.vehicle&&norm(plate)===norm(context.vehicle.plate)});
 }
 function renderLocalRepairRecipients(){
   if(!repairRequesterNeedsLocalRecipient())return;
@@ -4098,8 +4106,9 @@ function renderLocalRepairRecipients(){
   select.innerHTML=targets.map(function(u){return `<option value="${u.id}">${u.name} - ${u.role}</option>`}).join('')||'<option value="">No hay personal asignado a esta ubicacion</option>';
   let label=select.closest('label'),form=select.closest('.form');
   if(!label){label=document.createElement('label');select.parentNode.insertBefore(label,select);label.appendChild(select)}
-  if(label&&!label.querySelector('.repairLocationHint'))label.insertAdjacentHTML('afterbegin',`<span class="repairLocationHint">Enviar a personal de ${context.location||'tu ubicacion'}</span>`);
-  else{let hint=label?.querySelector('.repairLocationHint');if(hint)hint.textContent=`Enviar a personal de ${context.location||'tu ubicacion'}`}
+  let contextLocationText=(context.locations||[]).join(', ')||context.location||'tu ubicacion';
+  if(label&&!label.querySelector('.repairLocationHint'))label.insertAdjacentHTML('afterbegin',`<span class="repairLocationHint">Enviar a personal de ${contextLocationText}</span>`);
+  else{let hint=label?.querySelector('.repairLocationHint');if(hint)hint.textContent=`Enviar a personal de ${contextLocationText}`}
   if(form&&!document.getElementById('repairLocalOnlyNotice'))form.insertAdjacentHTML('afterbegin',`<div id="repairLocalOnlyNotice" class="wide notice"><b>Destinatarios del mismo frente:</b> como ${currentUser.role.toLowerCase()}, solo podes solicitar la reparacion a personal asignado a la ubicacion del vehiculo.</div>`);
 }
 const repairRequestFormBeforeLocalRecipients=repairRequestForm;
