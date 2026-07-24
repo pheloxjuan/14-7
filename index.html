@@ -5599,17 +5599,28 @@ function cloudWarehousePositions(item){
   let values=warehousePositionValues(item);
   return values.map(code=>({code,quantity:null}));
 }
+async function fetchAllSupabaseRows(client,table,columns,pageSize=1000){
+  let rows=[];
+  for(let from=0;;from+=pageSize){
+    let result=await client.from(table).select(columns).range(from,from+pageSize-1);
+    if(result.error)throw result.error;
+    let page=result.data||[];
+    rows.push(...page);
+    if(page.length<pageSize)break;
+  }
+  return {data:rows,error:null};
+}
 async function loadCloudStock(){
   if(!supabaseSessionActive||cloudStockLoading)return;
   cloudStockLoading=true;
   try{
     let client=await ensureSupabaseClient();
     let [articlesResult,balancesResult,companiesResult,locationsResult,articleCompaniesResult]=await Promise.all([
-      client.from('articles').select('id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active'),
-      client.from('stock_balances').select('article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at'),
+      fetchAllSupabaseRows(client,'articles','id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active'),
+      fetchAllSupabaseRows(client,'stock_balances','article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at'),
       client.from('companies').select('id,name'),
       client.from('locations').select('id,company_id,name,active'),
-      client.from('article_companies').select('article_id,company_id')
+      fetchAllSupabaseRows(client,'article_companies','article_id,company_id')
     ]);
     [articlesResult,balancesResult,companiesResult,locationsResult,articleCompaniesResult].forEach(result=>{if(result.error)throw result.error});
     let articlesById=new Map((articlesResult.data||[]).map(row=>[row.id,row]));
