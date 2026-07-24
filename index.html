@@ -4268,10 +4268,10 @@ function prepareStockExcelRows(rows,duplicateMode='last'){
 async function inspectStockExcel(input){
   let file=input?.files?.[0],box=document.getElementById('stockExcelPreview');if(!file||!box)return;box.innerHTML='<div class="notice">Leyendo archivo...</div>';
   try{
-    let destinationValue=document.getElementById('stockExcelDestination')?.value||'',destinationParts=destinationValue.split('|||'),destinationCompany=destinationParts[0]||company,destinationLocation=destinationParts[1]||'',XLSX=await ensureXlsxLibrary(),buffer=await file.arrayBuffer(),book=XLSX.read(buffer),sheet=book.Sheets[book.SheetNames[0]],raw=XLSX.utils.sheet_to_json(sheet,{defval:''}),parsed=raw.map(normalizedExcelRow);
+    let destinationValue=document.getElementById('stockExcelDestination')?.value||'',destinationParts=destinationValue.split('|||'),destinationCompany=destinationParts[0]||company,destinationLocation=destinationParts[1]||'',companyScope=document.getElementById('stockExcelCompanyScope')?.value||company,XLSX=await ensureXlsxLibrary(),buffer=await file.arrayBuffer(),book=XLSX.read(buffer),sheet=book.Sheets[book.SheetNames[0]],raw=XLSX.utils.sheet_to_json(sheet,{defval:''}),parsed=raw.map(normalizedExcelRow);
     if(destinationLocation)parsed.forEach(function(r){r.loc=destinationLocation});
     let checked=validateStockExcelRows(parsed),existing=checked.valid.filter(function(r){return stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)})}),created=checked.valid.filter(function(r){return !stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)})});
-    window.pendingStockExcelImport=checked.valid.length?{fileName:file.name,rows:checked.valid,destinationCompany:destinationCompany,destinationLocation:destinationLocation,errors:checked.errors,duplicates:checked.duplicates||[]}:null;
+    window.pendingStockExcelImport=checked.valid.length?{fileName:file.name,rows:checked.valid,destinationCompany:destinationCompany,destinationLocation:destinationLocation,companyScope:companyScope,errors:checked.errors,duplicates:checked.duplicates||[]}:null;
     box.innerHTML=`<div class="grid"><div class="card"><span class="muted">Filas validas</span><div class="metric">${checked.valid.length}</div></div><div class="card"><span class="muted">Articulos nuevos</span><div class="metric">${created.length}</div></div><div class="card"><span class="muted">Articulos a actualizar</span><div class="metric">${existing.length}</div></div><div class="card"><span class="muted">Filas invalidas</span><div class="metric">${checked.errors.length}</div></div><div class="card"><span class="muted">Duplicados en el archivo</span><div class="metric">${(checked.duplicates||[]).length}</div></div></div>${checked.errors.length?`<div class="notice dangerText"><b>Estas filas se omitirán si continuás:</b><ul>${checked.errors.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${checked.warnings.length?`<div class="notice"><b>Advertencias:</b><ul>${checked.warnings.map(function(x){return `<li>${x}</li>`}).join('')}</ul></div>`:''}${(checked.duplicates||[]).length?`<div class="form"><label>Cómo tratar códigos duplicados en el archivo<select id="stockExcelDuplicateMode"><option value="last">Usar la última fila</option><option value="add">Sumar las cantidades</option><option value="skip">Conservar la primera y omitir repetidas</option></select></label></div>`:''}${checked.valid.length?`<div class="tableScroll"><table><thead><tr><th>Fila</th><th>Codigo</th><th>Articulo</th><th>Ubicacion</th><th>Codigo ubicacion deposito</th><th>Cantidad</th><th>Resultado</th></tr></thead><tbody>${checked.valid.slice(0,100).map(function(r){let exists=stock.some(function(i){return String(i.code).toUpperCase()===r.code&&norm(i.loc)===norm(r.loc)});return `<tr><td>${r.row}</td><td><b>${r.code}</b></td><td>${r.part}</td><td>${r.loc}</td><td>${r.warehousePosition||'<span class="muted">Sin especificar</span>'}</td><td>${r.qty}</td><td>${exists?'Actualizar':'Crear'}</td></tr>`}).join('')}</tbody></table></div>`:''}${window.pendingStockExcelImport?'<button class="primary wide" onclick="confirmStockExcelImport()">Confirmar importación válida</button>':'<div class="notice dangerText">No hay filas válidas para importar.</div>'}`;
     addBackupAudit('Excel de stock probado',`${file.name}: ${checked.valid.length} validas, ${checked.errors.length} errores`);
   }catch(e){window.pendingStockExcelImport=null;box.innerHTML='<div class="notice dangerText"><b>No se pudo leer el archivo.</b> Verifica que sea Excel o CSV valido y que exista conexion para cargar el lector.</div>'}
@@ -4326,7 +4326,7 @@ superAdminBackupCenter=function(){
   if(csvModule&&!Array.from(csvModule.options).some(function(o){return o.value==='completo'}))csvModule.insertAdjacentHTML('afterbegin','<option value="completo">CSV completo - todos los datos</option>');
   if(csvModule&&!Array.from(csvModule.options).some(function(o){return o.value==='consumos'}))csvModule.insertAdjacentHTML('beforeend','<option value="consumos">Consumos</option><option value="ingresos">Ingresos</option>');
   if(csvCard&&!document.getElementById('backupCsvCompany')){let button=csvCard.querySelector('button');button?.insertAdjacentHTML('beforebegin',`<select id="backupCsvCompany"><option value="">Todas las empresas</option><option>Phelox Ltda</option><option>Transportes El Avion</option></select><select id="backupCsvLocation"><option value="">Todas las ubicaciones</option>${[...new Set(Object.values(locations).flat())].sort().map(function(l){return `<option value="${val(l)}">${l}</option>`}).join('')}</select><label>Desde<input id="backupCsvFrom" type="date"></label><label>Hasta<input id="backupCsvTo" type="date"></label>`)}
-  adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar stock desde Excel</h3><span class="muted">Carga articulos nuevos o actualiza stock existente con vista previa.</span></div><button class="ghost" onclick="downloadStockExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Codigo, Articulo y Cantidad. La columna Ubicacion es obligatoria solamente si elegis "Usar ubicacion indicada en el Excel".<br><span class="muted">Opcionales: Tipo, Marca, Modelo, Codigo ubicacion deposito, Ideal, Minimo, Precio y Moneda. El código interno de ubicación puede completarse más adelante desde la aplicación.</span></div><div class="form"><label>Ubicacion de destino<select id="stockExcelDestination"><option value="">Usar ubicacion indicada en el Excel</option>${Object.entries(locations).map(function(entry){return `<optgroup label="${val(entry[0])}">${entry[1].map(function(l){return `<option value="${val(entry[0]+'|||'+l)}">${l}</option>`}).join('')}</optgroup>`}).join('')}</select></label><label>Como aplicar cantidades<select id="stockExcelQtyMode"><option value="replace">Reemplazar cantidad actual</option><option value="add">Sumar a la cantidad actual</option></select></label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectStockExcel(this)"></label></div><div id="stockExcelPreview"></div></div>`);
+  adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar stock desde Excel</h3><span class="muted">Carga articulos nuevos o actualiza stock existente con vista previa.</span></div><button class="ghost" onclick="downloadStockExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Codigo, Articulo y Cantidad. La columna Ubicacion es obligatoria solamente si elegis "Usar ubicacion indicada en el Excel".<br><span class="muted">Opcionales: Tipo, Marca, Modelo, Codigo ubicacion deposito, Ideal, Minimo, Precio y Moneda. El código interno de ubicación puede completarse más adelante desde la aplicación.</span></div><div class="form"><label>Empresa que puede utilizar los artículos<select id="stockExcelCompanyScope"><option>Phelox Ltda</option><option>Transportes El Avion</option><option selected>Ambas empresas</option></select></label><label>Ubicacion de destino<select id="stockExcelDestination"><option value="">Usar ubicacion indicada en el Excel</option>${Object.entries(locations).map(function(entry){return `<optgroup label="${val(entry[0])}">${entry[1].map(function(l){return `<option value="${val(entry[0]+'|||'+l)}">${l}</option>`}).join('')}</optgroup>`}).join('')}</select></label><label>Como aplicar cantidades<select id="stockExcelQtyMode"><option value="replace">Reemplazar cantidad actual</option><option value="add">Sumar a la cantidad actual</option></select></label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectStockExcel(this)"></label></div><div id="stockExcelPreview"></div></div>`);
   adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar mantenimientos desde Excel</h3><span class="muted">Carga historiales anteriores por matricula sin consumir stock.</span></div><button class="ghost" onclick="downloadMaintenanceExcelTemplate()">Descargar plantilla Excel</button></div><div class="notice"><b>Columnas obligatorias:</b> Fecha, Matricula, Kilometraje y Trabajo.<br><span class="muted">Opcionales: Usuario, Ubicacion, Costo, Moneda y Comentarios. Los repuestos no se descuentan porque son mantenimientos historicos.</span></div><div class="form"><label>Empresa<select id="maintenanceExcelCompany"><option value="">Detectar por matricula</option><option>Phelox Ltda</option><option>Transportes El Avion</option></select></label><label><input id="maintenanceExcelAddCost" type="checkbox" checked> Sumar costos al gasto del vehiculo</label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectMaintenanceExcel(this)"></label></div><div id="maintenanceExcelPreview"></div></div>`);
 };
 function exportRecordCompany(row){
@@ -5604,16 +5604,19 @@ async function loadCloudStock(){
   cloudStockLoading=true;
   try{
     let client=await ensureSupabaseClient();
-    let [articlesResult,balancesResult,companiesResult,locationsResult]=await Promise.all([
+    let [articlesResult,balancesResult,companiesResult,locationsResult,articleCompaniesResult]=await Promise.all([
       client.from('articles').select('id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active'),
       client.from('stock_balances').select('article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at'),
       client.from('companies').select('id,name,system_key'),
-      client.from('locations').select('id,company_id,name,active')
+      client.from('locations').select('id,company_id,name,active'),
+      client.from('article_companies').select('article_id,company_id')
     ]);
-    [articlesResult,balancesResult,companiesResult,locationsResult].forEach(result=>{if(result.error)throw result.error});
+    [articlesResult,balancesResult,companiesResult,locationsResult,articleCompaniesResult].forEach(result=>{if(result.error)throw result.error});
     let articlesById=new Map((articlesResult.data||[]).map(row=>[row.id,row]));
     let companiesById=new Map((companiesResult.data||[]).map(row=>[row.id,localCompanySystemKey(row)]));
     let locationsById=new Map((locationsResult.data||[]).map(row=>[row.id,row]));
+    let articleCompanyNames=new Map();
+    (articleCompaniesResult.data||[]).forEach(link=>{let names=articleCompanyNames.get(link.article_id)||[];let name=companiesById.get(link.company_id);if(name&&!names.includes(name))names.push(name);articleCompanyNames.set(link.article_id,names)});
     let cloudRows=(balancesResult.data||[]).map(balance=>{
       let article=articlesById.get(balance.article_id),location=locationsById.get(balance.location_id);
       if(!article||!location)return null;
@@ -5621,7 +5624,7 @@ async function loadCloudStock(){
       return {
         code:article.code,part:article.name,type:article.article_type||'Articulo',brand:article.brand||'',model:article.model||'',
         loc:location.name,qty:Number(balance.quantity||0),ideal:Number(article.ideal_stock||0),min:Number(article.minimum_stock||0),
-        price:Number(balance.average_cost||0),currency:balance.currency||'UYU',stockCompany:companiesById.get(balance.company_id)||'',
+        price:Number(balance.average_cost||0),currency:balance.currency||'UYU',stockCompany:(articleCompanyNames.get(balance.article_id)||[]).length>1?'Ambas empresas':(articleCompanyNames.get(balance.article_id)||[])[0]||companiesById.get(balance.company_id)||'',
         warehousePosition:positionCodes.join(' / '),warehousePositions:positionCodes,warehousePositionDetails:positions,
         photos:[],compatibleArticleCodes:[],_cloudArticleId:balance.article_id,_cloudLocationId:balance.location_id,
         _cloudCompanyId:balance.company_id,_cloudVersion:Number(balance.version||0)
@@ -5700,6 +5703,15 @@ function cloudImportRows(rows,destinationLocation=''){
   });
   return [...groups.values()];
 }
+async function detectCloudStockBalanceCompany(client,rows,forcedCompany=''){
+  if(forcedCompany)return forcedCompany;
+  let locationNames=[...new Set(rows.map(row=>norm(row.location)))],companiesResult=await client.from('companies').select('id,name,system_key'),locationsResult=await client.from('locations').select('company_id,name,active').eq('active',true);
+  if(companiesResult.error)throw companiesResult.error;if(locationsResult.error)throw locationsResult.error;
+  let scores=(companiesResult.data||[]).map(c=>{let names=new Set((locationsResult.data||[]).filter(l=>l.company_id===c.id).map(l=>norm(l.name)));return {name:localCompanySystemKey(c),matches:locationNames.filter(name=>names.has(name)).length,total:locationNames.length}});
+  scores.sort((a,b)=>b.matches-a.matches);
+  if(!scores[0]||scores[0].matches!==scores[0].total)throw new Error(`Las ubicaciones del Excel no pertenecen todas a una misma empresa. Coincidencias: ${scores.map(s=>`${s.name} ${s.matches}/${s.total}`).join(' · ')}`);
+  return scores[0].name;
+}
 applyStockExcelImport=async function(mode,duplicateMode='add'){
   let pending=window.pendingStockExcelImport;if(!pending)return;
   if(!supabaseSessionActive)return alert('Debes ingresar a la aplicación conectada a Supabase para importar stock');
@@ -5707,13 +5719,15 @@ applyStockExcelImport=async function(mode,duplicateMode='add'){
   try{
     closeModal();
     modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox success"><div class="modalTitle">Importando a la nube</div><p>Guardando ${cloudRows.length} saldos en Supabase. No cierres esta ventana.</p></div></div>`;
-    let client=await ensureSupabaseClient(),result=await client.rpc('import_stock_rows',{
-      p_company_name:pending.destinationCompany||company,p_rows:cloudRows,p_quantity_mode:mode
+    let client=await ensureSupabaseClient(),balanceCompany=await detectCloudStockBalanceCompany(client,cloudRows,pending.destinationLocation?pending.destinationCompany:''),result=await client.rpc('import_stock_rows',{
+      p_company_name:balanceCompany,p_rows:cloudRows,p_quantity_mode:mode
     });
     if(result.error)throw result.error;
+    let codes=[...new Set(cloudRows.map(row=>row.code))],scopeResult=await client.rpc('set_imported_articles_company_scope',{p_codes:codes,p_scope:pending.companyScope||balanceCompany});
+    if(scopeResult.error)throw scopeResult.error;
     await loadCloudStock();window.pendingStockExcelImport=null;closeModal();clearChanges();
-    addBackupAudit('Stock importado a Supabase',`${pending.fileName}: ${result.data?.created||0} creados, ${result.data?.updated||0} actualizados`);
-    success(`Importación guardada en la nube. Nuevos: ${result.data?.created||0}. Actualizados: ${result.data?.updated||0}.`);
+    addBackupAudit('Stock importado a Supabase',`${pending.fileName}: ${result.data?.created||0} creados, ${result.data?.updated||0} actualizados · ${pending.companyScope||balanceCompany}`);
+    success(`Importación guardada en la nube. Nuevos: ${result.data?.created||0}. Actualizados: ${result.data?.updated||0}. Artículos habilitados para ${pending.companyScope||balanceCompany}.`);
   }catch(error){closeModal();alert('No se importó el stock: '+(error.message||'error desconocido'))}
 };
 const loginWithSupabaseBeforeCloudStock=loginWithSupabase;
