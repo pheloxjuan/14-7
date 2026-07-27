@@ -1,5 +1,5 @@
-const CACHE_NAME = 'phelox-pwa-2026-07-27-v1';
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/phelox-icon-192.png', '/phelox-icon-512.png', '/apple-touch-icon.png'];
+const CACHE_NAME = 'phelox-pwa-2026-07-27-v2';
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/phelox-logo-192-v2.png', '/phelox-logo-512-v2.png', '/apple-touch-icon-v2.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
