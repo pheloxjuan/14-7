@@ -5515,7 +5515,8 @@ const adminUserFormBeforeSupabaseEdit=adminUserForm;
 adminUserForm=function(id=''){
   let existing=users.find(user=>user.id===id);
   if(existing?.cloudManaged&&!canManageCloudUser(existing))return alert('Solo el superadministrador puede editar administradores.');
-  let result=adminUserFormBeforeSupabaseEdit(id),form=document.getElementById('uId')?.closest('.form');
+  let result=existing?.cloudManaged?adminUserFormBeforeSupabaseCreate(id):adminUserFormBeforeSupabaseEdit(id),
+      form=document.getElementById('uId')?.closest('.form');
   if(!existing?.cloudManaged||!form)return result;
   let idInput=document.getElementById('uId');if(idInput){idInput.disabled=true;idInput.title='El nombre de usuario se conserva para no perder referencias históricas'}
   let pass=document.getElementById('uPass');if(pass){pass.type='hidden';pass.value='SIN-CAMBIO'}
