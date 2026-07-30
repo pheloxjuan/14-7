@@ -5840,4 +5840,13 @@ loadCloudStock=async function(){
     saveLocalDataWithoutStock();
   }finally{cloudStockLoading=false}
 };
+
+/* Mantiene actualizada la aplicación instalada en teléfonos y computadoras. */
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js?v=20260730-3',{updateViaCache:'none'})
+      .then(registration=>registration.update())
+      .catch(error=>console.warn('No se pudo actualizar la aplicación instalada',error));
+  });
+}
 </script></body></html>
