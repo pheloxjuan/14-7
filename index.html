@@ -5973,17 +5973,18 @@ refreshSupabaseUsersCache=async function(){
 };
 
 /* Si las políticas directas bloquean alguna tabla, usa el respaldo seguro del servidor. */
-const loadCloudStockBeforeSnapshotFallback=loadCloudStock;
 loadCloudStock=async function(){
-  let directError=null;
+  if(!supabaseSessionActive)return;
+  if(cloudStockLoading){
+    while(cloudStockLoading)await new Promise(resolve=>setTimeout(resolve,100));
+    if(cloudStockReady&&stock.length)return;
+  }
+  cloudStockLoading=true;
   cloudStockReady=false;
   stock.splice(0,stock.length);
-  try{await loadCloudStockBeforeSnapshotFallback()}catch(error){directError=error}
-  if(cloudStockReady&&stock.length)return;
-  cloudStockLoading=true;
   try{
     let client=await ensureSupabaseClient(),result=await client.rpc('get_stock_snapshot');
-    if(result.error)throw directError||result.error;
+    if(result.error)throw result.error;
     let snapshot=result.data||{},articleRows=Array.isArray(snapshot.articles)?snapshot.articles:[],
         balanceRows=Array.isArray(snapshot.balances)?snapshot.balances:[],
         companyRows=Array.isArray(snapshot.companies)?snapshot.companies:[],
@@ -6016,6 +6017,27 @@ loadCloudStock=async function(){
     })]));
     cloudStockReady=true;saveLocalDataWithoutStock();
   }finally{cloudStockLoading=false}
+};
+let cloudStockScreenReloading=false;
+async function reloadCloudStockScreen(){
+  if(cloudStockScreenReloading||!supabaseSessionActive)return;
+  cloudStockScreenReloading=true;
+  try{
+    await loadCloudStock();
+    if(document.getElementById('stockViewBox'))stockArticles();
+  }catch(error){
+    console.error('No se pudo mostrar el stock real de Supabase',error);
+    alert('No se pudo cargar el stock real de Supabase: '+(error.message||'error desconocido'));
+  }finally{cloudStockScreenReloading=false}
+}
+const stockArticlesBeforeCloudRecovery=stockArticles;
+stockArticles=function(){
+  let result=stockArticlesBeforeCloudRecovery();
+  if(supabaseSessionActive&&!stock.length&&!cloudStockLoading){
+    stockViewBox?.insertAdjacentHTML('afterbegin','<div class="notice"><b>Cargando stock desde Supabase...</b></div>');
+    setTimeout(reloadCloudStockScreen,0);
+  }
+  return result;
 };
 </script><script id="pwa-install-script">
 (() => {
