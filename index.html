@@ -5983,13 +5983,14 @@ loadCloudStock=async function(){
   cloudStockReady=false;
   stock.splice(0,stock.length);
   try{
-    let client=await ensureSupabaseClient(),result=await client.rpc('get_stock_snapshot');
-    if(result.error)throw result.error;
-    let snapshot=result.data||{},articleRows=Array.isArray(snapshot.articles)?snapshot.articles:[],
-        balanceRows=Array.isArray(snapshot.balances)?snapshot.balances:[],
-        companyRows=Array.isArray(snapshot.companies)?snapshot.companies:[],
-        locationRows=Array.isArray(snapshot.locations)?snapshot.locations:[],
-        articleCompanyRows=Array.isArray(snapshot.article_companies)?snapshot.article_companies:[],
+    let client=await ensureSupabaseClient(),
+        [articleRows,balanceRows,companyRows,locationRows,articleCompanyRows]=await Promise.all([
+          fetchAllCloudRows(client,'articles','id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active',['id']),
+          fetchAllCloudRows(client,'stock_balances','article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at',['article_id','location_id']),
+          fetchAllCloudRows(client,'companies','id,name,system_key',['id']),
+          fetchAllCloudRows(client,'locations','id,company_id,name,active',['id']),
+          fetchAllCloudRows(client,'article_companies','article_id,company_id',['article_id','company_id'])
+        ]),
         articlesById=new Map(articleRows.map(row=>[row.id,row])),
         companiesById=new Map(companyRows.map(row=>[row.id,localCompanySystemKey(row)])),
         locationsById=new Map(locationRows.map(row=>[row.id,row])),
