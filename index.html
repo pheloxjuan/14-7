@@ -5863,7 +5863,12 @@ loginWithSupabase=async function(){
   await loginWithSupabaseBeforeCloudStock();
   if(supabaseSessionActive){
     try{await loadCloudStock();renderCompanyScreen()}
-    catch(error){await supabaseClient?.auth.signOut();supabaseSessionActive=false;cloudStockReady=false;showSupabaseLogin('No se pudo cargar el stock real de Supabase: '+(error.message||'error desconocido'))}
+    catch(error){
+      cloudStockReady=false;
+      window.cloudLastSyncError=error.message||'error desconocido';
+      console.error('La sesión inició, pero el stock todavía no pudo sincronizarse',error);
+      renderCompanyScreen();
+    }
   }
 };
 const logoutBeforeCloudStock=logout;
@@ -6041,6 +6046,18 @@ stockArticles=function(){
   }
   return result;
 };
+const adminPersonnelBeforeCloudRefresh=adminPersonnel;
+adminPersonnel=async function(){
+  if(supabaseSessionActive&&isAdmin()){
+    try{await refreshSupabaseUsersCache()}
+    catch(error){
+      console.error('No se pudo actualizar el personal desde Supabase',error);
+      adminBox.innerHTML=`<div class="notice dangerText">No se pudieron cargar los usuarios desde Supabase: ${val(error.message||'error desconocido')}<br><button class="ghost" onclick="adminPersonnel()">Reintentar</button></div>`;
+      return;
+    }
+  }
+  return adminPersonnelBeforeCloudRefresh();
+};
 </script><script id="pwa-install-script">
 (() => {
   const installButton = document.getElementById('installPhelox');
@@ -6075,7 +6092,7 @@ stockArticles=function(){
   });
   if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v6');
+      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v7');
       await registration.update();
     } catch (error) {
       console.warn('No se pudo actualizar la aplicación instalada', error);
