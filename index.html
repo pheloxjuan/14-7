@@ -6035,7 +6035,7 @@ async function reloadCloudStockScreen(){
 const stockArticlesBeforeCloudRecovery=stockArticles;
 stockArticles=function(){
   let result=stockArticlesBeforeCloudRecovery();
-  if(supabaseSessionActive&&!stock.length&&!cloudStockLoading){
+  if(supabaseSessionActive&&!stock.length){
     stockViewBox?.insertAdjacentHTML('afterbegin','<div class="notice"><b>Cargando stock desde Supabase...</b></div>');
     setTimeout(reloadCloudStockScreen,0);
   }
@@ -6073,6 +6073,13 @@ stockArticles=function(){
   window.matchMedia('(display-mode: standalone)').addEventListener?.('change', event => {
     if (event.matches) hideInstallButton();
   });
-  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v6');
+      await registration.update();
+    } catch (error) {
+      console.warn('No se pudo actualizar la aplicación instalada', error);
+    }
+  });
 })();
 </script></body></html>
