@@ -5897,7 +5897,7 @@ loadCloudStock=async function(){
         [articleRows,balanceRows,companyRows,locationRows,articleCompanyRows]=await Promise.all([
           fetchAllCloudRows(client,'articles','id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active',['id']),
           fetchAllCloudRows(client,'stock_balances','article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at',['article_id','location_id']),
-          fetchAllCloudRows(client,'companies','id,name,system_key',['id']),
+          fetchAllCloudRows(client,'companies','id,name',['id']),
           fetchAllCloudRows(client,'locations','id,company_id,name,active',['id']),
           fetchAllCloudRows(client,'article_companies','article_id,company_id',['article_id','company_id'])
         ]),
@@ -5993,7 +5993,7 @@ loadCloudStock=async function(){
         [articleRows,balanceRows,companyRows,locationRows,articleCompanyRows]=await Promise.all([
           fetchAllCloudRows(client,'articles','id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active',['id']),
           fetchAllCloudRows(client,'stock_balances','article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at',['article_id','location_id']),
-          fetchAllCloudRows(client,'companies','id,name,system_key',['id']),
+          fetchAllCloudRows(client,'companies','id,name',['id']),
           fetchAllCloudRows(client,'locations','id,company_id,name,active',['id']),
           fetchAllCloudRows(client,'article_companies','article_id,company_id',['article_id','company_id'])
         ]),
@@ -6092,7 +6092,7 @@ adminPersonnel=async function(){
   });
   if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v7');
+      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v8');
       await registration.update();
     } catch (error) {
       console.warn('No se pudo actualizar la aplicación instalada', error);
