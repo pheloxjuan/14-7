@@ -5800,21 +5800,32 @@ refreshSupabaseUsersCache=async function(){
   });
 };
 
-const loadCloudStockBeforeSnapshot=loadCloudStock;
+async function fetchAllCloudRows(client,table,columns,orderColumns=[]){
+  let rows=[],from=0,pageSize=1000;
+  while(true){
+    let query=client.from(table).select(columns);
+    orderColumns.forEach(column=>{query=query.order(column,{ascending:true})});
+    let result=await query.range(from,from+pageSize-1);
+    if(result.error)throw result.error;
+    let page=result.data||[];
+    rows.push(...page);
+    if(page.length<pageSize)break;
+    from+=pageSize;
+  }
+  return rows;
+}
 loadCloudStock=async function(){
   if(!supabaseSessionActive||cloudStockLoading)return;
   cloudStockLoading=true;
   try{
-    let client=await ensureSupabaseClient(),snapshotResult=await client.rpc('get_stock_snapshot');
-    if(snapshotResult.error){
-      cloudStockLoading=false;
-      return loadCloudStockBeforeSnapshot();
-    }
-    let snapshot=snapshotResult.data||{},articleRows=Array.isArray(snapshot.articles)?snapshot.articles:[],
-        balanceRows=Array.isArray(snapshot.balances)?snapshot.balances:[],
-        companyRows=Array.isArray(snapshot.companies)?snapshot.companies:[],
-        locationRows=Array.isArray(snapshot.locations)?snapshot.locations:[],
-        articleCompanyRows=Array.isArray(snapshot.article_companies)?snapshot.article_companies:[],
+    let client=await ensureSupabaseClient(),
+        [articleRows,balanceRows,companyRows,locationRows,articleCompanyRows]=await Promise.all([
+          fetchAllCloudRows(client,'articles','id,code,name,article_type,brand,model,minimum_stock,ideal_stock,active',['id']),
+          fetchAllCloudRows(client,'stock_balances','article_id,company_id,location_id,quantity,average_cost,currency,version,warehouse_positions,updated_at',['article_id','location_id']),
+          fetchAllCloudRows(client,'companies','id,name,system_key',['id']),
+          fetchAllCloudRows(client,'locations','id,company_id,name,active',['id']),
+          fetchAllCloudRows(client,'article_companies','article_id,company_id',['article_id','company_id'])
+        ]),
         articlesById=new Map(articleRows.map(row=>[row.id,row])),
         companiesById=new Map(companyRows.map(row=>[row.id,localCompanySystemKey(row)])),
         locationsById=new Map(locationRows.map(row=>[row.id,row])),
@@ -5844,7 +5855,7 @@ loadCloudStock=async function(){
 /* Mantiene actualizada la aplicación instalada en teléfonos y computadoras. */
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('/sw.js?v=20260730-3',{updateViaCache:'none'})
+    navigator.serviceWorker.register('/sw.js?v=20260730-4',{updateViaCache:'none'})
       .then(registration=>registration.update())
       .catch(error=>console.warn('No se pudo actualizar la aplicación instalada',error));
   });
