@@ -5939,6 +5939,84 @@ loginWithSupabase=async function(){
   await loginWithSupabaseBeforeCloudCleanup();
   if(supabaseSessionActive)clearLegacyDemoRecords();
 };
+
+/* Los administradores cargan la lista completa mediante la función segura de Supabase. */
+const refreshSupabaseUsersCacheBeforeSnapshot=refreshSupabaseUsersCache;
+refreshSupabaseUsersCache=async function(){
+  if(!supabaseSessionActive||!isAdmin())return;
+  let client=await ensureSupabaseClient(),snapshotResult=await client.rpc('get_admin_users_snapshot');
+  if(snapshotResult.error)return refreshSupabaseUsersCacheBeforeSnapshot();
+  let snapshot=snapshotResult.data||{},profileRows=Array.isArray(snapshot.profiles)?snapshot.profiles:[],
+      companyLinks=Array.isArray(snapshot.profile_companies)?snapshot.profile_companies:[],
+      areaLinks=Array.isArray(snapshot.profile_areas)?snapshot.profile_areas:[],
+      locationLinks=Array.isArray(snapshot.profile_locations)?snapshot.profile_locations:[],
+      structure=await fetchSupabaseStructure(client),
+      companyById=new Map(structure.companyRows.map(row=>[row.id,localCompanySystemKey(row)])),
+      areaById=new Map(structure.areaRows.map(row=>[row.id,row])),
+      locationById=new Map(structure.locationRows.map(row=>[row.id,row]));
+  users=profileRows.map(profile=>{
+    let role=supabaseRoleToLocal(profile.role),all=['Superadministrador','Administrador'].includes(role),
+        user={id:profile.username,name:profile.full_name,email:'',phone:profile.phone||'',role,pass:'',active:profile.active!==false,
+          hourlyRate:Number(profile.hourly_rate||0),hourlyCurrency:profile.hourly_currency||'UYU',
+          perms:all?{all:true}:defaultPermsForRole(role),locations:{},areas:{},vehicles:{},vehiclesAll:{},
+          supabaseId:profile.id,cloudManaged:true};
+    structure.companyRows.forEach(row=>{let key=companyById.get(row.id);user.locations[key]=[];user.areas[key]=[];user.vehicles[key]=[];user.vehiclesAll[key]=all});
+    if(all){
+      structure.companyRows.forEach(row=>{let key=companyById.get(row.id);user.locations[key]=structure.locationRows.filter(loc=>loc.company_id===row.id&&loc.active!==false).map(loc=>loc.name);user.areas[key]=structure.areaRows.filter(area=>area.company_id===row.id&&area.active!==false).map(area=>area.name);user.vehicles[key]=vehicleIdsForCompany(key)});
+    }else{
+      locationLinks.filter(link=>link.profile_id===profile.id).forEach(link=>{let loc=locationById.get(link.location_id),key=loc&&companyById.get(loc.company_id),area=loc&&areaById.get(loc.area_id);if(key&&loc){user.locations[key].push(loc.name);if(area?.name&&!user.areas[key].includes(area.name))user.areas[key].push(area.name)}});
+      areaLinks.filter(link=>link.profile_id===profile.id).forEach(link=>{let area=areaById.get(link.area_id),key=area&&companyById.get(area.company_id);if(key&&area&&!user.areas[key].includes(area.name))user.areas[key].push(area.name)});
+      Object.keys(user.locations).forEach(key=>{let allowed=new Set(user.locations[key].map(norm));user.vehicles[key]=rawFleetByCompany(key).filter(vehicle=>vehicleSubLocations(vehicle).some(location=>allowed.has(norm(location)))).map(vehicle=>vehicle.plate)});
+    }
+    return user;
+  });
+};
+
+/* Si las políticas directas bloquean alguna tabla, usa el respaldo seguro del servidor. */
+const loadCloudStockBeforeSnapshotFallback=loadCloudStock;
+loadCloudStock=async function(){
+  let directError=null;
+  cloudStockReady=false;
+  stock.splice(0,stock.length);
+  try{await loadCloudStockBeforeSnapshotFallback()}catch(error){directError=error}
+  if(cloudStockReady&&stock.length)return;
+  cloudStockLoading=true;
+  try{
+    let client=await ensureSupabaseClient(),result=await client.rpc('get_stock_snapshot');
+    if(result.error)throw directError||result.error;
+    let snapshot=result.data||{},articleRows=Array.isArray(snapshot.articles)?snapshot.articles:[],
+        balanceRows=Array.isArray(snapshot.balances)?snapshot.balances:[],
+        companyRows=Array.isArray(snapshot.companies)?snapshot.companies:[],
+        locationRows=Array.isArray(snapshot.locations)?snapshot.locations:[],
+        articleCompanyRows=Array.isArray(snapshot.article_companies)?snapshot.article_companies:[],
+        articlesById=new Map(articleRows.map(row=>[row.id,row])),
+        companiesById=new Map(companyRows.map(row=>[row.id,localCompanySystemKey(row)])),
+        locationsById=new Map(locationRows.map(row=>[row.id,row])),
+        articleCompanyNames=new Map();
+    articleCompanyRows.forEach(link=>{let names=articleCompanyNames.get(link.article_id)||[],name=companiesById.get(link.company_id);if(name&&!names.includes(name))names.push(name);articleCompanyNames.set(link.article_id,names)});
+    let cloudRows=balanceRows.map(balance=>{
+      let article=articlesById.get(balance.article_id),location=locationsById.get(balance.location_id);
+      if(!article||!location)return null;
+      let positions=Array.isArray(balance.warehouse_positions)?balance.warehouse_positions:[],
+          positionCodes=positions.map(position=>typeof position==='string'?position:position?.code).filter(Boolean),
+          companyNames=articleCompanyNames.get(balance.article_id)||[];
+      return {code:article.code,part:article.name,type:article.article_type||'Articulo',brand:article.brand||'',model:article.model||'',
+        loc:location.name,qty:Number(balance.quantity||0),ideal:Number(article.ideal_stock||0),min:Number(article.minimum_stock||0),
+        price:Number(balance.average_cost||0),currency:balance.currency||'UYU',
+        stockCompany:companyNames.length>1?'Ambas empresas':companyNames[0]||companiesById.get(balance.company_id)||'',
+        warehousePosition:positionCodes.join(' / '),warehousePositions:positionCodes,warehousePositionDetails:positions,
+        photos:[],compatibleArticleCodes:[],_cloudArticleId:balance.article_id,_cloudLocationId:balance.location_id,
+        _cloudCompanyId:balance.company_id,_cloudVersion:Number(balance.version||0)};
+    }).filter(Boolean);
+    if(!cloudRows.length)throw new Error('Supabase no devolvió saldos de stock para este usuario');
+    stock.splice(0,stock.length,...cloudRows);
+    cloudStockBaseline=new Map(cloudRows.map(item=>[cloudStockKey(item),JSON.stringify({
+      qty:Number(item.qty||0),price:Number(item.price||0),currency:item.currency||'UYU',
+      positions:cloudWarehousePositions(item),version:Number(item._cloudVersion||0)
+    })]));
+    cloudStockReady=true;saveLocalDataWithoutStock();
+  }finally{cloudStockLoading=false}
+};
 </script><script id="pwa-install-script">
 (() => {
   const installButton = document.getElementById('installPhelox');
