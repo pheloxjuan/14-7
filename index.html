@@ -5485,14 +5485,14 @@ adminUserForm=function(id=''){
   return result;
 };
 async function refreshSupabaseUsersCache(){
-  if(!supabaseSessionActive||!isSuperAdmin())return;
+  if(!supabaseSessionActive||!isAdmin())return;
   let client=await ensureSupabaseClient(),profiles=await client.from('profiles').select('id,username,full_name,phone,role,active,hourly_rate,hourly_currency').order('full_name');if(profiles.error)throw profiles.error;
   let [companyLinks,areaLinks,locationLinks,structure]=await Promise.all([client.from('profile_companies').select('profile_id,company_id'),client.from('profile_areas').select('profile_id,area_id'),client.from('profile_locations').select('profile_id,location_id'),fetchSupabaseStructure(client)]);[companyLinks,areaLinks,locationLinks].forEach(result=>{if(result.error)throw result.error});
   let companyById=new Map(structure.companyRows.map(row=>[row.id,localCompanySystemKey(row)])),areaById=new Map(structure.areaRows.map(row=>[row.id,row])),locationById=new Map(structure.locationRows.map(row=>[row.id,row]));
   users=(profiles.data||[]).map(profile=>{let role=supabaseRoleToLocal(profile.role),all=['Superadministrador','Administrador'].includes(role),user={id:profile.username,name:profile.full_name,email:'',phone:profile.phone||'',role,pass:'',active:profile.active!==false,hourlyRate:Number(profile.hourly_rate||0),hourlyCurrency:profile.hourly_currency||'UYU',perms:all?{all:true}:defaultPermsForRole(role),locations:{},areas:{},vehicles:{},vehiclesAll:{},supabaseId:profile.id,cloudManaged:true};structure.companyRows.forEach(row=>{let key=companyById.get(row.id);user.locations[key]=[];user.areas[key]=[];user.vehicles[key]=[];user.vehiclesAll[key]=all});if(all){structure.companyRows.forEach(row=>{let key=companyById.get(row.id);user.locations[key]=structure.locationRows.filter(loc=>loc.company_id===row.id&&loc.active!==false).map(loc=>loc.name);user.areas[key]=structure.areaRows.filter(area=>area.company_id===row.id&&area.active!==false).map(area=>area.name);user.vehicles[key]=vehicleIdsForCompany(key)})}else{(locationLinks.data||[]).filter(link=>link.profile_id===profile.id).forEach(link=>{let loc=locationById.get(link.location_id),key=loc&&companyById.get(loc.company_id),area=loc&&areaById.get(loc.area_id);if(key&&loc){user.locations[key].push(loc.name);if(area?.name&&!user.areas[key].includes(area.name))user.areas[key].push(area.name)}});(areaLinks.data||[]).filter(link=>link.profile_id===profile.id).forEach(link=>{let area=areaById.get(link.area_id),key=area&&companyById.get(area.company_id);if(key&&area&&!user.areas[key].includes(area.name))user.areas[key].push(area.name)});Object.keys(user.locations).forEach(key=>{let allowed=new Set(user.locations[key].map(norm));user.vehicles[key]=rawFleetByCompany(key).filter(v=>vehicleSubLocations(v).some(loc=>allowed.has(norm(loc)))).map(v=>v.plate)})}return user});
 }
 const adminUsersBeforeSupabaseCache=adminUsers;
-adminUsers=async function(){adminUsersBeforeSupabaseCache();if(!supabaseSessionActive||!isSuperAdmin())return;try{adminUsersList.innerHTML='<div class="notice">Cargando usuarios de Supabase...</div>';await refreshSupabaseUsersCache();renderAdminUsers()}catch(error){adminUsersList.innerHTML=`<div class="notice dangerText">No se pudieron cargar los usuarios: ${val(error.message||'error desconocido')}</div>`}};
+adminUsers=async function(){adminUsersBeforeSupabaseCache();if(!supabaseSessionActive||!isAdmin())return;try{adminUsersList.innerHTML='<div class="notice">Cargando usuarios de Supabase...</div>';await refreshSupabaseUsersCache();renderAdminUsers()}catch(error){adminUsersList.innerHTML=`<div class="notice dangerText">No se pudieron cargar los usuarios: ${val(error.message||'error desconocido')}</div>`}};
 const saveUserBeforeSupabaseCreate=saveUser;
 async function supabaseFunctionErrorMessage(error){try{let response=error?.context;if(response?.clone){let body=await response.clone().json();return body?.error||body?.message||error.message}}catch(e){}return error?.message||'error desconocido'}
 saveUser=async function(oldId=''){
@@ -5504,6 +5504,68 @@ saveUser=async function(oldId=''){
 };
 const deleteUserBeforeSupabaseUsers=deleteUser;
 deleteUser=function(id){let user=users.find(row=>row.id===id);if(user?.cloudManaged)return alert('Este usuario está guardado en Supabase. La desactivación segura se habilitará junto con la edición en el próximo paso.');return deleteUserBeforeSupabaseUsers(id)};
+
+/* Edición segura de usuarios reales guardados en Supabase. */
+function canManageCloudUser(user){
+  if(!isAdmin())return false;
+  if(isSuperAdmin())return true;
+  return !['Superadministrador','Administrador'].includes(user?.role);
+}
+const adminUserFormBeforeSupabaseEdit=adminUserForm;
+adminUserForm=function(id=''){
+  let existing=users.find(user=>user.id===id);
+  if(existing?.cloudManaged&&!canManageCloudUser(existing))return alert('Solo el superadministrador puede editar administradores.');
+  let result=adminUserFormBeforeSupabaseEdit(id),form=document.getElementById('uId')?.closest('.form');
+  if(!existing?.cloudManaged||!form)return result;
+  let idInput=document.getElementById('uId');if(idInput){idInput.disabled=true;idInput.title='El nombre de usuario se conserva para no perder referencias históricas'}
+  let pass=document.getElementById('uPass');if(pass){pass.type='hidden';pass.value='SIN-CAMBIO'}
+  let role=document.getElementById('uRole');
+  if(role&&!isSuperAdmin())[...role.options].forEach(option=>{if(['Administrador','Superadministrador'].includes(option.value))option.remove()});
+  let button=form.querySelector('button.primary.wide');
+  if(button){
+    button.insertAdjacentHTML('beforebegin',`<label class="wide"><input id="uActive" type="checkbox" ${existing.active!==false?'checked':''}> Usuario activo y habilitado para ingresar</label><div class="wide notice">La contraseña no se modifica desde este formulario. Los cambios se guardarán directamente en Supabase.</div>`);
+    button.textContent='Guardar cambios en Supabase';
+    button.setAttribute('onclick',`saveUser('${val(id)}')`);
+  }
+  return result;
+};
+const saveUserBeforeSupabaseEdit=saveUser;
+saveUser=async function(oldId=''){
+  let existing=users.find(user=>user.id===oldId);
+  if(!oldId||!existing?.cloudManaged)return saveUserBeforeSupabaseEdit(oldId);
+  if(!supabaseSessionActive)return alert('Debes ingresar con la sesión segura de Supabase');
+  if(!canManageCloudUser(existing))return alert('Solo el superadministrador puede editar administradores.');
+  let data=readUserForm(oldId);if(!data)return;
+  let role=localRoleToSupabase(data.role),active=document.getElementById('uActive')?.checked!==false;
+  if(!role)return alert('Selecciona un rol válido');
+  if(!isSuperAdmin()&&['superadministrador','administrador_general'].includes(role))return alert('Solo el superadministrador puede asignar roles administrativos.');
+  let companies=[...document.querySelectorAll('.uCompany:checked')].map(x=>x.value);
+  let areas=[...new Set(Object.entries(data.locations).flatMap(([companyName,rows])=>rows.map(location=>locationAreaForCompany(companyName,location))).filter(x=>x&&x!=='-'))];
+  let payload={action:'update-user',targetId:existing.supabaseId,username:existing.id,fullName:data.name,phone:existing.phone||'',role,active,hourlyRate:Number(data.hourlyRate||0),currency:existing.hourlyCurrency||'UYU',companies,areas,locations:Object.values(data.locations).flat()};
+  return confirmStockSave(`¿Guardar en Supabase los cambios de <b>${data.name}</b>?<br><br>Estado: <b>${active?'Activo':'Desactivado'}</b>`,async()=>{
+    try{
+      let response=await invokeSupabaseAsCurrentUser('import-users',payload);
+      if(response.error)throw response.error;
+      if(response.data?.error)throw new Error(response.data.error);
+      clearChanges();await refreshSupabaseUsersCache();success('Usuario actualizado correctamente en Supabase.');adminUsers();
+    }catch(error){alert('No se pudo editar el usuario: '+await supabaseFunctionErrorMessage(error))}
+  });
+};
+deleteUser=function(id){
+  let user=users.find(row=>row.id===id);
+  if(!user?.cloudManaged)return deleteUserBeforeSupabaseUsers(id);
+  if(!canManageCloudUser(user))return alert('Solo el superadministrador puede desactivar administradores.');
+  if(user.supabaseId===currentUser?.supabaseId)return alert('No puedes desactivar el usuario con el que estás ingresado');
+  modalConfirmAction=async()=>{
+    try{
+      let response=await invokeSupabaseAsCurrentUser('import-users',{action:'set-user-active',targetId:user.supabaseId,active:false});
+      if(response.error)throw response.error;
+      if(response.data?.error)throw new Error(response.data.error);
+      await refreshSupabaseUsersCache();success('Usuario desactivado. Ya no podrá ingresar.');adminUsers();
+    }catch(error){alert('No se pudo desactivar el usuario: '+await supabaseFunctionErrorMessage(error))}
+  };
+  modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">Desactivar usuario</div><p>¿Desactivar a <b>${user.name}</b>?<br><br>No se borrará su historial, pero ya no podrá ingresar hasta que se reactive.</p><div class="modalActions"><button class="ghost" onclick="closeModal()">Cancelar</button><button class="red" onclick="runModalConfirm()">Sí, desactivar</button></div></div></div>`;
+};
 
 /* Paginación común para los listados extensos de la aplicación. */
 const pagedTableStates={};
