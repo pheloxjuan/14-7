@@ -58,6 +58,13 @@ Deno.serve(async (request) => {
       const username = String(body.username || "").trim().toLowerCase();
       const fullName = String(body.fullName || "").trim();
       if (!username || !fullName) throw new Error("Usuario y nombre son obligatorios");
+      const newPassword = String(body.newPassword || "").trim();
+      if (newPassword && !isSuperAdmin) {
+        return Response.json({ error: "Solo el superadministrador puede cambiar contraseñas" }, { status: 403, headers: corsHeaders });
+      }
+      if (newPassword && newPassword.length < 8) {
+        throw new Error("La nueva contraseña debe tener al menos 8 caracteres");
+      }
       const profileUpdate = await admin.from("profiles").update({
         username,
         full_name: fullName,
@@ -72,6 +79,7 @@ Deno.serve(async (request) => {
       const authUpdate = await admin.auth.admin.updateUserById(targetId, {
         ban_duration: active ? "none" : "876000h",
         user_metadata: { username, full_name: fullName },
+        ...(newPassword ? { password: newPassword } : {}),
       });
       if (authUpdate.error) throw authUpdate.error;
 
