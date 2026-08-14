@@ -1,5 +1,5 @@
-const CACHE_NAME = 'phelox-pwa-2026-08-06-v9';
-const APP_SHELL = ['/index.html?v=cloud-v9', '/manifest.webmanifest', '/phelox-logo-192-v2.png', '/phelox-logo-512-v2.png', '/apple-touch-icon-v2.png'];
+const CACHE_NAME = 'phelox-pwa-2026-08-14-v10';
+const APP_SHELL = ['/index.html?v=cloud-v10', '/manifest.webmanifest', '/phelox-logo-192-v2.png', '/phelox-logo-512-v2.png', '/apple-touch-icon-v2.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
@@ -10,8 +10,8 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
   if (event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request, {cache: 'no-store'}).then(response => {
-      const copy = response.clone(); caches.open(CACHE_NAME).then(cache => cache.put('/index.html?v=cloud-v9', copy)); return response;
-    }).catch(() => caches.match('/index.html?v=cloud-v9')));
+      const copy = response.clone(); caches.open(CACHE_NAME).then(cache => cache.put('/index.html?v=cloud-v10', copy)); return response;
+    }).catch(() => caches.match('/index.html?v=cloud-v10')));
     return;
   }
   event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {

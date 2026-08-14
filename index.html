@@ -4578,12 +4578,43 @@ function confirmFleetExcelImport(){
   let pending=window.pendingFleetExcelImport;if(!isSuperAdmin()||!pending)return alert('Primero selecciona y valida un archivo de flota');let mode=document.getElementById('fleetExcelExistingMode')?.value||'skip';modalConfirmAction=function(){applyFleetExcelImport(mode)};
   modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">Confirmar importación de flota</div><p>Antes de modificar la flota se crearán respaldos JSON y Excel. Se procesarán <b>${pending.rows.length}</b> filas y las matrículas existentes se <b>${mode==='update'?'actualizarán':'omitirán'}</b>.</p><p><b>Este es el paso que guarda definitivamente la importación en la aplicación de este navegador.</b></p><div class="modalActions"><button class="ghost" onclick="closeModal()">Cancelar</button><button class="primary" onclick="runModalConfirm()">Sí, confirmar importación</button></div></div></div>`;
 }
+inspectFleetExcel=async function(input){
+  let file=input?.files?.[0],box=document.getElementById('fleetExcelPreview');
+  if(!file||!box)return;
+  window.pendingFleetExcelFile=file;
+  box.innerHTML='<div class="notice">Leyendo archivo...</div>';
+  try{
+    let fixedCompany=document.getElementById('fleetExcelCompany')?.value||'',XLSX=await ensureXlsxLibrary(),book=XLSX.read(await file.arrayBuffer(),{cellDates:true}),sheet=book.Sheets[book.SheetNames[0]],raw=XLSX.utils.sheet_to_json(sheet,{defval:'',raw:true}),checked=validateFleetExcelRows(raw.map(normalizedFleetExcelRow),fixedCompany),newRows=checked.valid.filter(r=>!r.existing),existingRows=checked.valid.filter(r=>r.existing),hasValidRows=checked.valid.length>0;
+    window.pendingFleetExcelImport=hasValidRows?{fileName:file.name,rows:checked.valid,invalidCount:checked.errors.length}:null;
+    let confirmBlock=hasValidRows?`<div class="notice"><b>Vista previa lista.</b> Todavía no se guardó ningún vehículo.${checked.errors.length?` Se importarán las <b>${checked.valid.length}</b> filas válidas y se omitirán <b>${checked.errors.length}</b> filas con error.`:' Revisá los datos y confirmá para completar la importación.'}</div><button class="primary wide" style="margin:10px 0" onclick="confirmFleetExcelImport()">Confirmar e importar ${checked.valid.length} vehículo(s)</button>`:`<div class="notice dangerText"><b>No hay vehículos válidos para confirmar.</b><br>Revisá los errores. Si el Excel no tiene una columna Empresa, elegí primero la empresa de destino y volvé a seleccionar el archivo.</div>`;
+    let tableRows=checked.valid.slice(0,100).map(r=>`<tr><td>${r.row}</td><td>${r.targetCompany}</td><td>${r.type}</td><td>${r.brand} ${r.model}</td><td><b>${r.plate}</b></td><td>${r.location}</td><td>${r.existing?'Existente':'Crear'}</td></tr>`).join('');
+    let tableBlock=hasValidRows?`<div class="tableScroll"><table><thead><tr><th>Fila</th><th>Empresa</th><th>Tipo</th><th>Marca y modelo</th><th>Matrícula</th><th>Ubicación</th><th>Resultado</th></tr></thead><tbody>${tableRows}</tbody></table></div>${checked.valid.length>100?`<div class="muted">Se muestran las primeras 100 filas de ${checked.valid.length} válidas.</div>`:''}${confirmBlock}`:'';
+    box.innerHTML=`<div class="grid"><div class="card"><span class="muted">Vehículos válidos</span><div class="metric">${checked.valid.length}</div></div><div class="card"><span class="muted">Nuevos</span><div class="metric">${newRows.length}</div></div><div class="card"><span class="muted">Matrículas existentes</span><div class="metric">${existingRows.length}</div></div><div class="card"><span class="muted">Filas con error</span><div class="metric">${checked.errors.length}</div></div></div>${confirmBlock}${checked.errors.length?`<div class="notice dangerText"><b>Estas filas se omitirán:</b><ul>${checked.errors.map(x=>`<li>${x}</li>`).join('')}</ul></div>`:''}${checked.warnings.length?`<div class="notice"><b>Advertencias:</b><ul>${checked.warnings.map(x=>`<li>${x}</li>`).join('')}</ul></div>`:''}${tableBlock}`;
+    addBackupAudit('Excel de flota probado',`${file.name}: ${checked.valid.length} válidos, ${checked.errors.length} errores`);
+  }catch(e){
+    window.pendingFleetExcelImport=null;
+    box.innerHTML=`<div class="notice dangerText"><b>No se pudo leer el archivo de flota.</b><br>${e?.message||'Verificá el formato y la conexión.'}</div>`;
+  }
+};
+confirmFleetExcelImport=function(){
+  let pending=window.pendingFleetExcelImport;
+  if(!isSuperAdmin()||!pending)return alert('Primero seleccioná y validá un archivo de flota');
+  let mode=document.getElementById('fleetExcelExistingMode')?.value||'skip',invalidCount=pending.invalidCount||0;
+  modalConfirmAction=function(){applyFleetExcelImport(mode)};
+  modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">Confirmar importación de flota</div><p>Antes de modificar la flota se crearán respaldos JSON y Excel. Se importarán <b>${pending.rows.length}</b> filas válidas y las matrículas existentes se <b>${mode==='update'?'actualizarán':'omitirán'}</b>.${invalidCount?` Se dejarán fuera <b>${invalidCount}</b> filas con error.`:''}</p><p><b>Al confirmar, los vehículos válidos se guardarán y se sincronizarán con Supabase.</b></p><div class="modalActions"><button class="ghost" onclick="closeModal()">Cancelar</button><button class="primary" onclick="runModalConfirm()">Sí, confirmar importación</button></div></div></div>`;
+};
 function applyFleetExcelImport(mode){
   let pending=window.pendingFleetExcelImport;if(!pending)return;downloadUnifiedBackup(true);let created=0,updated=0,skipped=0,fileName=pending.fileName;pending.rows.forEach(function(r){let fleet=r.targetCompany==='Transportes El Avion'?avionFleet:pheloxFleet,otherFleet=r.targetCompany==='Transportes El Avion'?pheloxFleet:avionFleet,existing=[...pheloxFleet,...avionFleet].find(function(v){return norm(v.plate)===norm(r.plate)});if(existing&&mode!=='update'){skipped++;return}let location=r.location?((locations[r.targetCompany]||[]).find(function(l){return norm(l)===norm(r.location)})||r.location):'';if(location&&!(locations[r.targetCompany]||[]).includes(location)){locations[r.targetCompany]=locations[r.targetCompany]||[];locations[r.targetCompany].push(location)}let values={company:r.targetCompany,type:r.type||'',brand:r.brand||'',model:r.model||'',plate:r.plate,year:r.year,subLocation:location,homeLocation:location,pheloxArea:r.area||'',workAreas:r.area?[r.area]:[],ownership:r.ownership||'',usualOperator:r.usualOperator||'',gps:r.gps||'',status:r.status||'',chassis:r.chassis||'',axles:r.axles||'',tiresPerAxle:r.tiresPerAxle||'',tireSize:r.tireSize||'',tireSizes:r.tireSize||'',oilType:r.oilType||'',oilLiters:r.oilLiters||0,oilCode:r.oilCode||'',filterCodes:r.filterCodes||'',km:r.km||0};if(existing){Object.assign(existing,values);let oldFleet=otherFleet.includes(existing)?otherFleet:fleet;if(oldFleet!==fleet){oldFleet.splice(oldFleet.indexOf(existing),1);fleet.push(existing)}updated++}else{fleet.push(baseVehicle(values));created++}});saveData();let saved=0;try{let stored=JSON.parse(localStorage.getItem(dataKey)||'{}');saved=(stored.pheloxFleet||[]).length+(stored.avionFleet||[]).length}catch(e){}window.lastFleetImportResult={fileName,created,updated,skipped,saved,date:now()};addBackupAudit('Flota importada desde Excel',`${fileName}: ${created} creados, ${updated} actualizados, ${skipped} omitidos`);window.pendingFleetExcelImport=null;clearChanges();success(`Importación confirmada. Nuevos: ${created}. Actualizados: ${updated}. Omitidos: ${skipped}. Total guardado: ${saved}.`);superAdminBackupCenter();
 }
 const superAdminBackupCenterBeforeFleetExcel=superAdminBackupCenter;
 superAdminBackupCenter=function(){
   superAdminBackupCenterBeforeFleetExcel();let last=window.lastFleetImportResult;adminBox.insertAdjacentHTML('beforeend',`<div class="panel"><div class="top"><div><h3>Importar flota desde Excel</h3><span class="muted">Compatible con la planilla Flota maestra por matrícula.</span></div><button class="ghost" onclick="downloadFleetExcelTemplate()">Descargar plantilla Excel</button></div>${last?`<div class="notice" style="border-color:#72a77d;background:#edf8ef"><b>✓ Última importación confirmada</b><br>${last.fileName} · ${last.date}<br><span class="muted">Nuevos: ${last.created} · Actualizados: ${last.updated} · Omitidos: ${last.skipped} · Total de vehículos guardados: ${last.saved}</span></div>`:''}<div class="notice"><b>Única columna obligatoria:</b> Matrícula. Si el archivo no tiene Empresa, elegí la empresa de destino antes de importarlo.<br><span class="muted">Opcionales: Tipo de unidad, Marca, Modelo, Sector, Frente, Propiedad, Operario habitual, GPS, Estado, Nº Serie / Chasis y Rodado. Los campos vacíos se completan después desde la app.</span></div><div class="form"><label>Empresa de destino<select id="fleetExcelCompany"><option value="">Usar empresa indicada en el Excel</option><option>Phelox Ltda</option><option>Transportes El Avion</option></select></label><label>Matrículas que ya existen<select id="fleetExcelExistingMode"><option value="skip">Omitir y conservar datos actuales</option><option value="update">Actualizar con los datos del Excel</option></select></label><label>Archivo Excel o CSV<input type="file" accept=".xlsx,.xls,.csv" onchange="inspectFleetExcel(this)"></label></div><div id="fleetExcelPreview"></div></div>`);
+};
+const superAdminBackupCenterBeforeFleetCompanyRefresh=superAdminBackupCenter;
+superAdminBackupCenter=function(){
+  superAdminBackupCenterBeforeFleetCompanyRefresh();
+  let companySelect=document.getElementById('fleetExcelCompany');
+  if(companySelect)companySelect.addEventListener('change',()=>{if(window.pendingFleetExcelFile)inspectFleetExcel({files:[window.pendingFleetExcelFile]})});
 };
 
 renderLoginUsers=function(){
@@ -5471,7 +5502,7 @@ saveAdminFleet=function(){let before=new Set([...pheloxFleet,...avionFleet]),res
 const saveAdminFleetEditBeforeSupabase=saveAdminFleetEdit;
 saveAdminFleetEdit=function(key){let parts=key.split('|'),oldPlate=parts.slice(1).join('|'),vehicle=(parts[0]==='a'?avionFleet:pheloxFleet).find(row=>row.plate===oldPlate),result=saveAdminFleetEditBeforeSupabase(key);if(vehicle)queueSupabaseFleetSync(client=>syncVehicleToSupabase(client,vehicle,vehicleCompanyName(vehicle),oldPlate));return result};
 const applyFleetExcelImportBeforeSupabase=applyFleetExcelImport;
-applyFleetExcelImport=function(mode){let result=applyFleetExcelImportBeforeSupabase(mode);normalizeFleetTypeValues();saveData();queueSupabaseFleetSync(async client=>{await ensureLocalFleetStructureInSupabase(client);await syncAllLocalFleetToSupabase(client)});return result};
+applyFleetExcelImport=function(mode){let result=applyFleetExcelImportBeforeSupabase(mode);window.pendingFleetExcelFile=null;normalizeFleetTypeValues();saveData();queueSupabaseFleetSync(async client=>{await ensureLocalFleetStructureInSupabase(client);await syncAllLocalFleetToSupabase(client)});return result};
 const saveLocationVehiclesEncodedBeforeSupabase=saveLocationVehiclesEncoded;
 saveLocationVehiclesEncoded=function(rawTarget,rawLoc){let result=saveLocationVehiclesEncodedBeforeSupabase(rawTarget,rawLoc),pending=modalConfirmAction;if(typeof pending==='function')modalConfirmAction=()=>{pending();queueSupabaseFleetSync(client=>syncAllLocalFleetToSupabase(client))};return result};
 const saveAreaVehiclesBeforeSupabase=saveAreaVehicles;
@@ -6122,7 +6153,7 @@ adminPersonnel=async function(){
   });
   if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v9');
+      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v10');
       await registration.update();
     } catch (error) {
       console.warn('No se pudo actualizar la aplicación instalada', error);
