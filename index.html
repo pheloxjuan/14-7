@@ -6119,6 +6119,137 @@ adminPersonnel=async function(){
   }
   return adminPersonnelBeforeCloudRefresh();
 };
+
+/* Solicitudes de reparacion compartidas entre usuarios mediante Supabase. */
+let cloudRepairPollTimer=null,cloudRepairRefreshBusy=false,cloudRepairKnownStates=new Map();
+function parseCloudRepairMeta(value){
+  if(!value)return {};
+  if(typeof value==='object')return value;
+  try{return JSON.parse(value)}catch(error){return {}}
+}
+function cloudRepairDisplayStatus(order){
+  let reason=norm(order.pause_reason||'');
+  if(reason.includes('rechazada'))return 'Rechazada';
+  if(reason.includes('aceptada')||order.status==='en_proceso'||order.status==='terminado')return 'Aprobada';
+  return 'Pendiente';
+}
+function cloudRepairMessageState(message){return `${message.cloudRepairOrderId}|${message.status||''}`}
+function pendingCloudRepairMessages(){
+  return (appMessages||[]).filter(message=>message.cloudRepairOrderId&&message.type==='Solicitud reparacion'&&message.status==='Pendiente'&&message.toUser===currentUser?.id);
+}
+function updateCloudRepairMessageBadge(){
+  let button=[...document.querySelectorAll('#userBox button')].find(item=>norm(item.textContent).startsWith('mensajes'));
+  if(button){let count=pendingCloudRepairMessages().length;button.textContent=count?`Mensajes (${count})`:'Mensajes'}
+}
+async function loadCloudRepairMessages(client){
+  if(!supabaseSessionActive||!currentUser?.supabaseId)return [];
+  let uid=currentUser.supabaseId,result=await client.from('maintenance_orders')
+    .select('id,company_id,location_id,vehicle_id,status,title,description,priority,requested_by,assigned_to,started_at,completed_at,pause_reason,notes,created_at,updated_at')
+    .or(`requested_by.eq.${uid},assigned_to.eq.${uid}`)
+    .order('created_at',{ascending:false}).limit(250);
+  if(result.error)throw result.error;
+  let structure=await fetchSupabaseStructure(client),companyById=new Map(structure.companyRows.map(row=>[row.id,localCompanySystemKey(row)])),locationById=new Map(structure.locationRows.map(row=>[row.id,row.name])),vehicleById=new Map([...pheloxFleet,...avionFleet].filter(vehicle=>vehicle.supabaseId).map(vehicle=>[vehicle.supabaseId,vehicle]));
+  appMessages=(appMessages||[]).filter(message=>!message.cloudRepairOrderId);
+  (result.data||[]).forEach(order=>{
+    let assigned=order.assigned_to===uid,requested=order.requested_by===uid;if(!assigned&&!requested)return;
+    let meta=parseCloudRepairMeta(order.notes),vehicle=vehicleById.get(order.vehicle_id),status=cloudRepairDisplayStatus(order),companyName=companyById.get(order.company_id)||'',locationName=locationById.get(order.location_id)||'',requesterName=meta.requesterName||'Otro usuario',recipientName=meta.recipientName||'Usuario asignado',response=meta.response||{},dateValue=order.updated_at||order.created_at,dateText=dateValue?new Date(dateValue).toLocaleString('es-UY'):now(),priority=String(order.priority||'normal');
+    let title=assigned?(order.title||'Solicitud de reparacion'):(status==='Pendiente'?`Solicitud enviada a ${recipientName}`:`Solicitud de reparacion ${status.toLowerCase()}`);
+    let body=`${assigned?`Solicitada por ${requesterName}. `:`Asignada a ${recipientName}. `}Prioridad ${priority}. ${order.description||''}`;
+    if(response.note)body+=` Respuesta: ${response.note}`;
+    appMessages.push({
+      id:'CLOUD-REPAIR-'+order.id,cloudRepairOrderId:order.id,cloudRepairMeta:meta,date:dateText,
+      toUser:currentUser.id,from:assigned?requesterName:recipientName,fromUser:assigned?(meta.requesterUsername||''):(meta.recipientUsername||''),
+      type:assigned?'Solicitud reparacion':'Aviso',title,body,status,due:meta.due||'',
+      vehiclePlate:vehicle?.plate||meta.vehiclePlate||'',vehicleLabel:vehicle?vehicleLabel(vehicle):(meta.vehicleLabel||''),
+      company:companyName||meta.company||'',location:locationName||meta.location||''
+    });
+  });
+  saveData();updateCloudRepairMessageBadge();return result.data||[];
+}
+
+const saveRepairRequestBeforeCloudPersistence=saveRepairRequest;
+saveRepairRequest=async function(){
+  if(!supabaseSessionActive)return saveRepairRequestBeforeCloudPersistence();
+  let button=[...document.querySelectorAll('button')].find(item=>norm(item.textContent).includes('enviar solicitud'));
+  try{
+    let to=users.find(user=>user.id===document.getElementById('rrTo')?.value),context=repairRequestSelectedContext(),vehicle=context.vehicle,detail=(document.getElementById('rrDetail')?.value||'').trim();
+    if(!to)return alert('Selecciona el usuario que recibira la solicitud');
+    if(!to.supabaseId)return alert('El destinatario no esta vinculado a Supabase. Volve a seleccionarlo en la lista de personal habilitado.');
+    if(!vehicle)return alert('Selecciona el vehiculo de la reparacion');
+    if(!detail)return alert('Escribi el detalle de la reparacion');
+    if(isAdministrativeRecipient(to))return alert('Los administradores y el superadministrador no pueden recibir solicitudes de reparacion');
+    if(repairRequesterNeedsLocalRecipient()&&!repairRecipientInLocation(to,context))return alert('La solicitud solo puede enviarse a personal de '+(context.location||'la misma ubicacion'));
+    if(button){button.disabled=true;button.textContent='Enviando a la nube...'}
+    let client=await ensureSupabaseClient(),structure=await fetchSupabaseStructure(client),companyRow=structure.companyRows.find(row=>norm(localCompanySystemKey(row))===norm(context.company)),locationRow=structure.locationRows.find(row=>row.company_id===companyRow?.id&&(context.locations||[context.location]).some(name=>norm(name)===norm(row.name))),vehicleId=vehicle.supabaseId;
+    if(!companyRow)throw new Error('No se encontro la empresa del vehiculo en Supabase');
+    if(!vehicleId){let lookup=await client.from('vehicles').select('id').eq('company_id',companyRow?.id||'').ilike('plate',vehicle.plate).limit(1);if(lookup.error)throw lookup.error;vehicleId=lookup.data?.[0]?.id}
+    if(!locationRow)throw new Error('No se encontro la ubicacion del vehiculo en Supabase');
+    if(!vehicleId)throw new Error('No se encontro el vehiculo en Supabase');
+    let priority=norm(document.getElementById('rrPriority')?.value||'normal'),due=document.getElementById('rrDue')?.value||'',photos=typeof selectedRepairRequestPhotos==='function'?await selectedRepairRequestPhotos():[],meta={source:'pheloxapp',version:1,requesterName:activeUserName(),requesterUsername:currentUser.id,recipientName:to.name,recipientUsername:to.id,due,vehiclePlate:vehicle.plate,vehicleLabel:vehicleLabel(vehicle),company:context.company,location:locationRow.name,photoCount:photos.length};
+    let inserted=await client.from('maintenance_orders').insert({company_id:companyRow.id,location_id:locationRow.id,vehicle_id:vehicleId,status:'solicitado',title:`Reparacion solicitada - ${vehicleLabel(vehicle)}`,description:detail,priority:['baja','normal','alta','urgente'].includes(priority)?priority:'normal',requested_by:currentUser.supabaseId,assigned_to:to.supabaseId,notes:JSON.stringify(meta)}).select('id').single();
+    if(inserted.error)throw inserted.error;
+    let before=new Set((appMessages||[]).map(message=>message.id));
+    await Promise.resolve(saveRepairRequestBeforeCloudPersistence());
+    let created=(appMessages||[]).find(message=>!before.has(message.id)&&message.type==='Solicitud reparacion');
+    if(created){created.cloudRepairOrderId=inserted.data.id;created.cloudRepairMeta=meta;saveData()}
+  }catch(error){
+    if(button){button.disabled=false;button.textContent='Enviar solicitud'}
+    alert('No se pudo enviar la solicitud a Supabase: '+(error.message||'error desconocido'));
+  }
+};
+
+const answerRepairRequestBeforeCloudPersistence=answerRepairRequest;
+answerRepairRequest=async function(id,status){
+  let message=(appMessages||[]).find(item=>item.id===id);
+  if(!supabaseSessionActive||!message?.cloudRepairOrderId)return answerRepairRequestBeforeCloudPersistence(id,status);
+  let note=(document.getElementById('repairResponseNote')?.value||'').trim(),button=[...document.querySelectorAll('.modalActions button')].find(item=>norm(item.textContent).includes(status==='Aprobada'?'aceptar':'rechazar'));
+  try{
+    if(button){button.disabled=true;button.textContent='Guardando respuesta...'}
+    let client=await ensureSupabaseClient(),meta={...(message.cloudRepairMeta||{}),response:{status,note,by:activeUserName(),at:new Date().toISOString()}},payload={pause_reason:status==='Aprobada'?'ACEPTADA':'RECHAZADA',notes:JSON.stringify(meta),updated_at:new Date().toISOString()};
+    if(status==='Rechazada')Object.assign(payload,{status:'terminado',completed_at:new Date().toISOString(),completed_by:currentUser.supabaseId});
+    let result=await client.from('maintenance_orders').update(payload).eq('id',message.cloudRepairOrderId).select('id').single();
+    if(result.error)throw result.error;
+    await Promise.resolve(answerRepairRequestBeforeCloudPersistence(id,status));
+    await loadCloudRepairMessages(client);
+  }catch(error){
+    if(button){button.disabled=false;button.textContent=status==='Aprobada'?'Aceptar y enviar':'Rechazar y enviar'}
+    alert('No se pudo guardar la respuesta en Supabase: '+(error.message||'error desconocido'));
+  }
+};
+
+const showUserMessagesBeforeCloudRepair=showUserMessages;
+showUserMessages=async function(force=false){
+  if(supabaseSessionActive){
+    try{await loadCloudRepairMessages(await ensureSupabaseClient())}
+    catch(error){console.error('No se pudieron cargar las solicitudes de reparacion',error);if(force)return alert('No se pudieron actualizar los mensajes desde Supabase: '+(error.message||'error desconocido'))}
+  }
+  return showUserMessagesBeforeCloudRepair(force);
+};
+function rememberCloudRepairStates(){cloudRepairKnownStates=new Map((appMessages||[]).filter(message=>message.cloudRepairOrderId).map(message=>[message.cloudRepairOrderId,cloudRepairMessageState(message)]))}
+async function refreshCloudRepairNotifications(){
+  if(!supabaseSessionActive||cloudRepairRefreshBusy)return;
+  cloudRepairRefreshBusy=true;
+  try{
+    let previous=new Map(cloudRepairKnownStates);await loadCloudRepairMessages(await ensureSupabaseClient());
+    let changed=(appMessages||[]).filter(message=>message.cloudRepairOrderId&&previous.has(message.cloudRepairOrderId)&&previous.get(message.cloudRepairOrderId)!==cloudRepairMessageState(message));
+    let newPending=pendingCloudRepairMessages().filter(message=>!previous.has(message.cloudRepairOrderId));
+    rememberCloudRepairStates();if(changed.length||newPending.length)showUserMessagesBeforeCloudRepair(true);
+  }catch(error){console.error('No se pudieron actualizar las notificaciones de reparacion',error)}finally{cloudRepairRefreshBusy=false}
+}
+function stopCloudRepairPolling(){if(cloudRepairPollTimer)clearInterval(cloudRepairPollTimer);cloudRepairPollTimer=null;cloudRepairKnownStates.clear()}
+function startCloudRepairPolling(){stopCloudRepairPolling();rememberCloudRepairStates();cloudRepairPollTimer=setInterval(refreshCloudRepairNotifications,30000)}
+const loginWithSupabaseBeforeCloudRepair=loginWithSupabase;
+loginWithSupabase=async function(){
+  await loginWithSupabaseBeforeCloudRepair();
+  if(!supabaseSessionActive)return;
+  try{
+    await loadCloudRepairMessages(await ensureSupabaseClient());startCloudRepairPolling();
+    if(pendingCloudRepairMessages().length)setTimeout(()=>showUserMessagesBeforeCloudRepair(false),200);
+  }catch(error){console.error('La sesion inicio, pero no se pudieron cargar las solicitudes de reparacion',error)}
+};
+const logoutBeforeCloudRepair=logout;
+logout=async function(){stopCloudRepairPolling();return logoutBeforeCloudRepair()};
+window.addEventListener('focus',()=>{if(supabaseSessionActive)refreshCloudRepairNotifications()});
 </script><script id="pwa-install-script">
 (() => {
   const installButton = document.getElementById('installPhelox');
@@ -6153,7 +6284,7 @@ adminPersonnel=async function(){
   });
   if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v10');
+      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v11');
       await registration.update();
     } catch (error) {
       console.warn('No se pudo actualizar la aplicación instalada', error);
