@@ -5197,6 +5197,7 @@ superAdminBackupCenter=function(){
    navegador porque los permisos efectivos se controlan con RLS en Supabase. */
 const SUPABASE_URL='https://qpkivgrrkudrcjytevjy.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_fEytN-A-X5Y-UF1NsVY7wQ_uc6IZ9rG';
+const WEB_PUSH_PUBLIC_KEY='BJzaD1Lsi4ktWvhb1y6Bak41V1PRAbwpITNnhLo-wjMeQtXmQ26TNTZeMz2wr2fRapxnkcGxgmipzbYbOgiIiiM';
 let supabaseClient=null,supabaseSessionActive=false;
 function ensureSupabaseClient(){
   if(supabaseClient)return Promise.resolve(supabaseClient);
@@ -6122,6 +6123,62 @@ adminPersonnel=async function(){
 
 /* Solicitudes de reparacion compartidas entre usuarios mediante Supabase. */
 let cloudRepairPollTimer=null,cloudRepairRealtimeChannel=null,cloudRepairRefreshBusy=false,cloudRepairKnownStates=new Map();
+function webPushAvailable(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
+function webPushKeyBytes(value){
+  let padding='='.repeat((4-value.length%4)%4),base64=(value+padding).replace(/-/g,'+').replace(/_/g,'/'),raw=atob(base64),bytes=new Uint8Array(raw.length);
+  for(let index=0;index<raw.length;index++)bytes[index]=raw.charCodeAt(index);
+  return bytes;
+}
+async function currentWebPushSubscription(){
+  if(!webPushAvailable())return null;
+  let registration=await navigator.serviceWorker.ready;
+  return registration.pushManager.getSubscription();
+}
+async function syncWebPushButton(){
+  let button=document.getElementById('pushNotificationsButton');if(!button)return;
+  if(!webPushAvailable()){button.hidden=true;return}
+  let subscription=null;try{subscription=await currentWebPushSubscription()}catch(error){}
+  let active=Notification.permission==='granted'&&!!subscription;
+  button.hidden=false;button.textContent=active?'Avisos activos':'Activar avisos';button.className=active?'gold':'ghost';button.title=active?'Desactivar notificaciones de este dispositivo':'Recibir solicitudes y respuestas aunque la app este cerrada';
+}
+async function enableWebPushNotifications(){
+  if(!supabaseSessionActive||!currentUser?.supabaseId)return alert('Primero ingresa a la aplicacion');
+  if(!webPushAvailable())return alert('Este navegador no permite notificaciones push. Proba con Chrome o instala la app en el telefono.');
+  if(Notification.permission==='denied')return alert('Las notificaciones estan bloqueadas. Habilitalas desde los permisos del sitio pheloxapp.com.');
+  try{
+    let permission=await Notification.requestPermission();if(permission!=='granted')return syncWebPushButton();
+    let registration=await navigator.serviceWorker.ready,subscription=await registration.pushManager.getSubscription();
+    if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:webPushKeyBytes(WEB_PUSH_PUBLIC_KEY)});
+    let data=subscription.toJSON(),stamp=new Date().toISOString(),client=await ensureSupabaseClient(),result=await client.from('push_subscriptions').upsert({user_id:currentUser.supabaseId,endpoint:data.endpoint,p256dh:data.keys?.p256dh||'',auth:data.keys?.auth||'',user_agent:navigator.userAgent,active:true,last_seen_at:stamp,updated_at:stamp},{onConflict:'endpoint'}).select('id').single();
+    if(result.error)throw result.error;
+    await syncWebPushButton();success('Avisos activados en este dispositivo.');
+  }catch(error){console.error('No se pudieron activar los avisos',error);alert('No se pudieron activar los avisos: '+(error.message||'error desconocido'))}
+}
+async function disableWebPushNotifications(options={}){
+  if(!webPushAvailable())return;
+  let subscription=null;
+  try{
+    subscription=await currentWebPushSubscription();
+    if(subscription&&supabaseSessionActive){let client=await ensureSupabaseClient(),result=await client.from('push_subscriptions').delete().eq('endpoint',subscription.endpoint);if(result.error)throw result.error}
+  }catch(error){console.warn('No se pudo quitar el dispositivo de Supabase',error)}
+  try{if(subscription)await subscription.unsubscribe()}catch(error){console.warn('No se pudo cancelar la suscripcion del navegador',error)}
+  await syncWebPushButton();if(!options.silent)success('Avisos desactivados en este dispositivo.');
+}
+async function toggleWebPushNotifications(){
+  let subscription=await currentWebPushSubscription();
+  return Notification.permission==='granted'&&subscription?disableWebPushNotifications():enableWebPushNotifications();
+}
+async function renderWebPushButton(){
+  let box=document.getElementById('userBox');if(!box||document.getElementById('pushNotificationsButton'))return syncWebPushButton();
+  let exit=[...box.querySelectorAll('button')].find(button=>norm(button.textContent)==='salir');
+  if(exit)exit.insertAdjacentHTML('beforebegin','<button id="pushNotificationsButton" class="ghost" onclick="toggleWebPushNotifications()">Activar avisos</button>');
+  await syncWebPushButton();
+}
+async function sendRepairPushNotification(orderId,event){
+  if(!supabaseSessionActive||!orderId)return;
+  try{let client=await ensureSupabaseClient(),result=await client.functions.invoke('push-repair',{body:{orderId,event}});if(result.error)throw result.error}
+  catch(error){console.warn('La solicitud se guardo, pero no se pudo enviar el aviso push',error)}
+}
 function parseCloudRepairMeta(value){
   if(!value)return {};
   if(typeof value==='object')return value;
@@ -6188,6 +6245,7 @@ saveRepairRequest=async function(){
     let priority=norm(document.getElementById('rrPriority')?.value||'normal'),due=document.getElementById('rrDue')?.value||'',photos=typeof selectedRepairRequestPhotos==='function'?await selectedRepairRequestPhotos():[],meta={source:'pheloxapp',version:1,requesterName:activeUserName(),requesterUsername:currentUser.id,recipientName:to.name,recipientUsername:to.id,due,vehiclePlate:vehicle.plate,vehicleLabel:vehicleLabel(vehicle),company:context.company,location:locationRow.name,photoCount:photos.length};
     let inserted=await client.from('maintenance_orders').insert({company_id:companyRow.id,location_id:locationRow.id,vehicle_id:vehicleId,status:'solicitado',title:`Reparacion solicitada - ${vehicleLabel(vehicle)}`,description:detail,priority:['baja','normal','alta','urgente'].includes(priority)?priority:'normal',requested_by:currentUser.supabaseId,assigned_to:to.supabaseId,notes:JSON.stringify(meta)}).select('id').single();
     if(inserted.error)throw inserted.error;
+    await sendRepairPushNotification(inserted.data.id,'requested');
     let before=new Set((appMessages||[]).map(message=>message.id));
     await Promise.resolve(saveRepairRequestBeforeCloudPersistence());
     let created=(appMessages||[]).find(message=>!before.has(message.id)&&message.type==='Solicitud reparacion');
@@ -6209,6 +6267,7 @@ answerRepairRequest=async function(id,status){
     if(status==='Rechazada')Object.assign(payload,{status:'terminado',completed_at:new Date().toISOString(),completed_by:currentUser.supabaseId});
     let result=await client.from('maintenance_orders').update(payload).eq('id',message.cloudRepairOrderId).select('id').single();
     if(result.error)throw result.error;
+    await sendRepairPushNotification(message.cloudRepairOrderId,status==='Aprobada'?'accepted':'rejected');
     await Promise.resolve(answerRepairRequestBeforeCloudPersistence(id,status));
     await loadCloudRepairMessages(client);rememberCloudRepairStates();
   }catch(error){
@@ -6256,12 +6315,12 @@ loginWithSupabase=async function(){
   await loginWithSupabaseBeforeCloudRepair();
   if(!supabaseSessionActive)return;
   try{
-    await loadCloudRepairMessages(await ensureSupabaseClient());startCloudRepairPolling();await startCloudRepairRealtime();
+    await loadCloudRepairMessages(await ensureSupabaseClient());startCloudRepairPolling();await startCloudRepairRealtime();await renderWebPushButton();
     if(pendingCloudRepairMessages().length)setTimeout(()=>showUserMessagesBeforeCloudRepair(false),200);
   }catch(error){console.error('La sesion inicio, pero no se pudieron cargar las solicitudes de reparacion',error)}
 };
 const logoutBeforeCloudRepair=logout;
-logout=async function(){stopCloudRepairPolling();await stopCloudRepairRealtime();return logoutBeforeCloudRepair()};
+logout=async function(){stopCloudRepairPolling();await stopCloudRepairRealtime();await disableWebPushNotifications({silent:true});return logoutBeforeCloudRepair()};
 window.addEventListener('focus',()=>{if(supabaseSessionActive)refreshCloudRepairNotifications()});
 </script><script id="pwa-install-script">
 (() => {
@@ -6297,7 +6356,7 @@ window.addEventListener('focus',()=>{if(supabaseSessionActive)refreshCloudRepair
   });
   if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v13');
+      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v14');
       await registration.update();
     } catch (error) {
       console.warn('No se pudo actualizar la aplicación instalada', error);
