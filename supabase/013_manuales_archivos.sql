@@ -62,6 +62,12 @@ create policy document_library_admin_delete
 
 grant select, insert, update, delete on public.document_library_items to authenticated;
 
+commit;
+
+notify pgrst, 'reload schema';
+
+begin;
+
 insert into storage.buckets (id, name, public)
 values ('manuales-archivos', 'manuales-archivos', false)
 on conflict (id) do update set public = false;
@@ -103,3 +109,6 @@ create policy manuales_archivos_admin_delete
   );
 
 commit;
+
+-- Fuerza a la API de Supabase a reconocer inmediatamente la tabla nueva.
+notify pgrst, 'reload schema';
