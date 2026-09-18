@@ -129,21 +129,16 @@ Deno.serve(async (request) => {
       return Response.json({ ok: true }, { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     if (body.action === "resolve-password") {
+      throw new Error("Usá Send password recovery en Supabase. El usuario debe elegir su contraseña desde el correo.");
+    }
+    if (body.action === "complete-password-request") {
       const requestId = String(body.requestId || "");
       const decision = body.decision === "approved" ? "approved" : body.decision === "rejected" ? "rejected" : "";
       if (!requestId || !decision) throw new Error("Solicitud o decisión inválida");
       const { data: resetRequest, error: resetError } = await admin.from("password_reset_requests").select("id,username,status,notes").eq("id", requestId).single();
       if (resetError || !resetRequest) throw new Error(resetError?.message || "La solicitud no existe");
       if (resetRequest.status !== "pendiente") throw new Error("La solicitud ya fue revisada");
-      if (decision === "approved") {
-        const password = String(body.password || "");
-        if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
-        const { data: target, error: targetError } = await admin.from("profiles").select("id,username").eq("username", resetRequest.username).single();
-        if (targetError || !target) throw new Error("No se encontró el usuario solicitado");
-        const changed = await admin.auth.admin.updateUserById(target.id, { password });
-        if (changed.error) throw changed.error;
-      }
-      const responseNote = String(body.note || (decision === "approved" ? "Contraseña actualizada por el superadministrador" : "Solicitud rechazada"));
+      const responseNote = String(body.note || (decision === "approved" ? "Envío manual de recuperación confirmado por el superadministrador" : "Solicitud rechazada"));
       const { error: updateError } = await admin.from("password_reset_requests").update({ status: decision === "approved" ? "atendida" : "cancelada", resolved_at: new Date().toISOString(), resolved_by: authData.user.id, notes: responseNote }).eq("id", requestId);
       if (updateError) throw updateError;
       return Response.json({ ok: true }, { headers: { ...corsHeaders, "Content-Type": "application/json" } });
