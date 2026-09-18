@@ -1,0 +1,12 @@
+{
+  "name": "phelox-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PHELOX LTDA / Transportes El Avión",
+  "scripts": {
+    "test": "node repo-tests.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

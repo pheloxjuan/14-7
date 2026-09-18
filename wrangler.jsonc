@@ -1,0 +1,11 @@
+{
+  "name": "phelox-password-notifications",
+  "main": "password-notifications.mjs",
+  "compatibility_date": "2026-09-18",
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "destination_address": "juancruz19@hotmail.com"
+    }
+  ]
+}

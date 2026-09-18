@@ -1,0 +1,133 @@
+{
+  "captured_at": "2026-09-18",
+  "scope": "Schema only; no records, secrets, tokens or storage objects.",
+  "tables": [
+    "areas",
+    "article_companies",
+    "article_compatibilities",
+    "article_photos",
+    "article_types",
+    "articles",
+    "audit_log",
+    "companies",
+    "document_library_items",
+    "google_drive_connections",
+    "google_drive_oauth_states",
+    "locations",
+    "maintenance_expenses",
+    "maintenance_labor",
+    "maintenance_orders",
+    "maintenance_parts",
+    "maintenance_photos",
+    "notifications",
+    "password_reset_requests",
+    "profile_areas",
+    "profile_companies",
+    "profile_locations",
+    "profiles",
+    "push_subscriptions",
+    "stock_balances",
+    "stock_lots",
+    "stock_movement_request_items",
+    "stock_movement_requests",
+    "stock_movements",
+    "vehicle_areas",
+    "vehicle_brands",
+    "vehicle_locations",
+    "vehicle_models",
+    "vehicle_recommended_articles",
+    "vehicle_types",
+    "vehicles"
+  ],
+  "extensions": [
+    {
+      "name": "plpgsql",
+      "schema": "pg_catalog",
+      "version": "1.0"
+    },
+    {
+      "name": "pg_stat_statements",
+      "schema": "extensions",
+      "version": "1.11"
+    },
+    {
+      "name": "uuid-ossp",
+      "schema": "extensions",
+      "version": "1.1"
+    },
+    {
+      "name": "pgcrypto",
+      "schema": "extensions",
+      "version": "1.3"
+    },
+    {
+      "name": "supabase_vault",
+      "schema": "vault",
+      "version": "0.3.1"
+    },
+    {
+      "name": "pg_net",
+      "schema": "extensions",
+      "version": "0.20.4"
+    }
+  ],
+  "platform_event_triggers": [
+    {
+      "name": "ensure_rls",
+      "tags": [
+        "CREATE TABLE",
+        "CREATE TABLE AS",
+        "SELECT INTO"
+      ],
+      "event": "ddl_command_end",
+      "enabled": "O",
+      "function": "public.rls_auto_enable"
+    }
+  ],
+  "platform_default_privileges": [
+    {
+      "acl": "{postgres=rwU/supabase_admin,anon=rwU/supabase_admin,authenticated=rwU/supabase_admin,service_role=rwU/supabase_admin}",
+      "kind": "S",
+      "owner": "supabase_admin",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=arwdDxtm/supabase_admin,anon=arwdDxtm/supabase_admin,authenticated=arwdDxtm/supabase_admin,service_role=arwdDxtm/supabase_admin}",
+      "kind": "r",
+      "owner": "supabase_admin",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=X/supabase_admin,anon=X/supabase_admin,authenticated=X/supabase_admin,service_role=X/supabase_admin}",
+      "kind": "f",
+      "owner": "supabase_admin",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=arwdDxtm/postgres,anon=Dxtm/postgres,authenticated=Dxtm/postgres,service_role=Dxtm/postgres}",
+      "kind": "r",
+      "owner": "postgres",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=rwU/postgres}",
+      "kind": "S",
+      "owner": "postgres",
+      "schema": "public"
+    },
+    {
+      "acl": "{postgres=X/postgres}",
+      "kind": "f",
+      "owner": "postgres",
+      "schema": "public"
+    }
+  ],
+  "counts": {
+    "tables": 36,
+    "functions": 13,
+    "policies": 73,
+    "enums": 4,
+    "indexes": 22,
+    "constraints": 171
+  }
+}
