@@ -4644,11 +4644,17 @@ function submitPasswordRecoveryRequest(){
 const messageActionButtonsBeforePasswordRecovery=messageActionButtons;
 messageActionButtons=function(r){
   let base=messageActionButtonsBeforePasswordRecovery(r),isRecovery=norm(r.type).includes('recuperacion contrasena');
-  if(isRecovery&&r.status==='Pendiente'&&isSuperAdmin())base+=`<div class="modalActions" style="justify-content:flex-start"><button class="primary" onclick="openPasswordRecoveryDecision('${r.id}','Aprobada')">Aprobar</button><button class="red" onclick="openPasswordRecoveryDecision('${r.id}','Rechazada')">Rechazar</button></div>`;
+  if(isRecovery&&r.status==='Pendiente'&&isSuperAdmin())base+=`<div class="modalActions" style="justify-content:flex-start"><button class="primary" onclick="openPasswordRecoveryDecision('${r.id}','Aprobada')">${r.cloudPasswordRequestId?'Gestionar recuperación':'Aprobar'}</button><button class="red" onclick="openPasswordRecoveryDecision('${r.id}','Rechazada')">Rechazar</button></div>`;
   return base;
 };
 function openPasswordRecoveryDecision(id,status){
   let request=(appMessages||[]).find(m=>m.id===id);if(!request||!isSuperAdmin())return;
+  if(request.cloudPasswordRequestId){
+    let safeBody=String(request.body||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    let approved=status==='Aprobada';
+    modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox"><div class="modalTitle">${approved?'Enviar recuperación desde Supabase':'Rechazar solicitud'}</div><p>${safeBody}</p>${approved?`<p>Abrí Supabase, buscá al usuario y pulsá <b>Send password recovery</b>. La persona recibirá un enlace en su correo registrado y elegirá su propia contraseña.</p><p><a href="https://supabase.com/dashboard/project/qpkivgrrkudrcjytevjy/auth/users" target="_blank" rel="noopener noreferrer">Abrir usuarios en Supabase</a></p><label><input id="recoveryEmailSent" type="checkbox"> Confirmo que ya envié el correo de recuperación desde Supabase.</label>`:'<textarea id="recoveryRejectNote" class="wide" placeholder="Motivo del rechazo"></textarea>'}<div class="modalActions"><button class="ghost" onclick="showUserMessages(true)">Volver</button><button class="primary" onclick="confirmPasswordRecovery('${id}','${status}')">${approved?'Marcar como atendida':'Rechazar solicitud'}</button></div></div></div>`;
+    return;
+  }
   if(status==='Aprobada')modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox"><div class="modalTitle" style="color:var(--text)">Aprobar recuperación</div><p>${request.body}</p><div class="notice"><b>Primero llamá al usuario para verificar su identidad.</b> Después escribí la contraseña nueva que le comunicarás por teléfono.</div><div class="form"><label class="wide">Nueva contraseña<input id="recoveryNewPass" type="password" minlength="8" autocomplete="new-password"></label><label class="wide">Repetir contraseña<input id="recoveryNewPass2" type="password" minlength="8" autocomplete="new-password"></label></div><div class="modalActions"><button class="ghost" onclick="showUserMessages(true)">Volver</button><button class="primary" onclick="confirmPasswordRecovery('${id}','Aprobada')">Aprobar y guardar contraseña</button></div></div></div>`;
   else modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox danger"><div class="modalTitle">Rechazar recuperación</div><p>${request.body}</p><textarea id="recoveryRejectNote" class="wide" placeholder="Motivo del rechazo"></textarea><div class="modalActions"><button class="ghost" onclick="showUserMessages(true)">Volver</button><button class="red" onclick="confirmPasswordRecovery('${id}','Rechazada')">Rechazar solicitud</button></div></div></div>`;
 }
@@ -5234,14 +5240,14 @@ function showSupabaseLogin(message=''){
   document.getElementById('login').innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><div class="top"><h1>Ingreso seguro</h1></div><p class="muted">Acceso exclusivo para usuarios registrados y activos.</p>${message?`<div class="notice">${message}</div>`:''}<div class="form"><label class="wide">Correo electrónico<input id="supabaseLoginUser" type="email" autocomplete="username" placeholder="usuario@empresa.com"></label><label class="wide">Contraseña<input id="supabaseLoginPass" type="password" autocomplete="current-password" placeholder="Contraseña" onkeydown="if(event.key==='Enter')loginWithSupabase()"></label><button id="supabaseLoginButton" class="primary wide" onclick="loginWithSupabase()">Ingresar</button><button class="ghost wide" onclick="showCloudPasswordRecoveryRequest()">Olvidé mi contraseña</button></div><div class="path"><b>Ingresá con el correo electrónico cargado en la plantilla, no con el nombre de usuario.</b><br>La contraseña se verifica en Supabase y no se guarda dentro de este archivo.</div></div>`;
 }
 function showCloudPasswordRecoveryRequest(){
-  document.getElementById('login').innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><div class="top"><h1>Recuperar contraseña</h1><button class="ghost" onclick="showSupabaseLogin()">Volver</button></div><p class="muted">La solicitud será enviada al superadministrador. Si la acepta, se comunicará por teléfono para entregarte una contraseña nueva.</p><div class="form"><label class="wide">Usuario<input id="cloudRecoveryUser" autocomplete="username" placeholder="Tu nombre de usuario"></label><label class="wide">Últimos 4 números del teléfono<input id="cloudRecoveryPhone" inputmode="numeric" maxlength="4" placeholder="Ejemplo: 1234"></label><textarea id="cloudRecoveryNote" class="wide" placeholder="Comentario opcional"></textarea><button id="cloudRecoveryButton" class="primary wide" onclick="submitCloudPasswordRecoveryRequest()">Enviar solicitud</button></div></div>`;
+  document.getElementById('login').innerHTML=`<div class="panel" style="max-width:520px;margin:30px auto"><div class="top"><h1>Recuperar contraseña</h1><button class="ghost" onclick="showSupabaseLogin()">Volver</button></div><p class="muted">La solicitud será enviada al superadministrador. Después de revisarla, te enviará un enlace de recuperación a tu correo registrado para que elijas tu propia contraseña.</p><div class="form"><label class="wide">Usuario<input id="cloudRecoveryUser" autocomplete="username" placeholder="Tu nombre de usuario"></label><label class="wide">Últimos 4 números del teléfono<input id="cloudRecoveryPhone" inputmode="numeric" maxlength="4" placeholder="Ejemplo: 1234"></label><textarea id="cloudRecoveryNote" class="wide" placeholder="Comentario opcional"></textarea><button id="cloudRecoveryButton" class="primary wide" onclick="submitCloudPasswordRecoveryRequest()">Enviar solicitud</button></div></div>`;
 }
 async function submitCloudPasswordRecoveryRequest(){
   let username=(document.getElementById('cloudRecoveryUser')?.value||'').trim(),phone=(document.getElementById('cloudRecoveryPhone')?.value||'').replace(/\D/g,'').slice(-4),note=(document.getElementById('cloudRecoveryNote')?.value||'').trim(),button=document.getElementById('cloudRecoveryButton');
   if(!username)return alert('Escribí tu usuario');
   if(phone.length!==4)return alert('Escribí los últimos 4 números de tu teléfono');
   if(button){button.disabled=true;button.textContent='Enviando...'}
-  try{let client=await ensureSupabaseClient(),result=await client.from('password_reset_requests').insert({username,phone_last4:phone,notes:note||null,status:'pendiente'});if(result.error)throw result.error;showSupabaseLogin('Solicitud enviada correctamente. El superadministrador la revisará y se comunicará por teléfono.')}catch(error){if(button){button.disabled=false;button.textContent='Enviar solicitud'}alert('No se pudo enviar la solicitud: '+(error.message||'intentá nuevamente'))}
+  try{let client=await ensureSupabaseClient(),result=await client.from('password_reset_requests').insert({username,phone_last4:phone,notes:note||null,status:'pendiente'});if(result.error)throw result.error;showSupabaseLogin('Solicitud enviada correctamente. El superadministrador la revisará. Recibirás el enlace de recuperación en tu correo registrado; revisá también la carpeta de spam.')}catch(error){if(button){button.disabled=false;button.textContent='Enviar solicitud'}alert('No se pudo enviar la solicitud: '+(error.message||'intentá nuevamente'))}
 }
 async function loadCloudPasswordRecoveryRequests(client){
   if(!isSuperAdmin())return;
@@ -5253,10 +5259,10 @@ const confirmPasswordRecoveryBeforeCloud=confirmPasswordRecovery;
 confirmPasswordRecovery=async function(id,status){
   let request=(appMessages||[]).find(message=>message.id===id);if(!request?.cloudPasswordRequestId)return confirmPasswordRecoveryBeforeCloud(id,status);
   if(!isSuperAdmin())return;
-  let password='',note='';
-  if(status==='Aprobada'){password=document.getElementById('recoveryNewPass')?.value||'';let second=document.getElementById('recoveryNewPass2')?.value||'';if(password.length<8)return alert('La contraseña debe tener al menos 8 caracteres');if(password!==second)return alert('Las contraseñas no coinciden');note='Contraseña cambiada y comunicada por teléfono'}
-  else note=(document.getElementById('recoveryRejectNote')?.value||'Solicitud rechazada por el superadministrador').trim();
-  try{let response=await invokeSupabaseAsCurrentUser('import-users',{action:'resolve-password',requestId:request.cloudPasswordRequestId,decision:status==='Aprobada'?'approved':'rejected',password,note});if(response.error)throw response.error;if(response.data?.error)throw new Error(response.data.error);let client=await ensureSupabaseClient();await loadCloudPasswordRecoveryRequests(client);closeModal();success(status==='Aprobada'?'Contraseña actualizada. Llamá al usuario para comunicársela.':'Solicitud rechazada.');showUserMessages(true)}catch(error){alert('No se pudo resolver la solicitud: '+await supabaseFunctionErrorMessage(error))}
+  if(status==='Aprobada'&&!document.getElementById('recoveryEmailSent')?.checked)return alert('Primero enviá el correo desde Supabase y marcá la confirmación.');
+  let note=status==='Aprobada'?'El superadministrador confirmó el envío manual del correo de recuperación desde Supabase.':(document.getElementById('recoveryRejectNote')?.value||'Solicitud rechazada por el superadministrador').trim();
+  try{let response=await invokeSupabaseAsCurrentUser('import-users',{action:'complete-password-request',requestId:request.cloudPasswordRequestId,decision:status==='Aprobada'?'approved':'rejected',note});if(response.error)throw response.error;if(response.data?.error)throw new Error(response.data.error);let client=await ensureSupabaseClient();await loadCloudPasswordRecoveryRequests(client);closeModal();success(status==='Aprobada'?'Solicitud atendida. El usuario elegirá su contraseña desde el correo.':'Solicitud rechazada.');showUserMessages(true)}catch(error){alert('No se pudo resolver la solicitud: '+await supabaseFunctionErrorMessage(error))}
+
 };
 async function loginWithSupabase(){
   let identifier=document.getElementById('supabaseLoginUser')?.value||'',password=document.getElementById('supabaseLoginPass')?.value||'',button=document.getElementById('supabaseLoginButton');
@@ -6283,7 +6289,7 @@ answerRepairRequest=async function(id,status){
 const showUserMessagesBeforeCloudRepair=showUserMessages;
 showUserMessages=async function(force=false){
   if(supabaseSessionActive){
-    try{await loadCloudRepairMessages(await ensureSupabaseClient())}
+    try{let client=await ensureSupabaseClient();await loadCloudRepairMessages(client);await loadCloudPasswordRecoveryRequests(client)}
     catch(error){console.error('No se pudieron cargar las solicitudes de reparacion',error);if(force)return alert('No se pudieron actualizar los mensajes desde Supabase: '+(error.message||'error desconocido'))}
   }
   return showUserMessagesBeforeCloudRepair(force);
@@ -6293,10 +6299,10 @@ async function refreshCloudRepairNotifications(){
   if(!supabaseSessionActive||cloudRepairRefreshBusy)return;
   cloudRepairRefreshBusy=true;
   try{
-    let previous=new Map(cloudRepairKnownStates);await loadCloudRepairMessages(await ensureSupabaseClient());
+    let previous=new Map(cloudRepairKnownStates),previousPasswordIds=new Set((appMessages||[]).filter(m=>m.cloudPasswordRequestId).map(m=>m.id));let client=await ensureSupabaseClient();await loadCloudRepairMessages(client);await loadCloudPasswordRecoveryRequests(client);let newPasswordRequest=(appMessages||[]).some(m=>m.cloudPasswordRequestId&&m.status==='Pendiente'&&!previousPasswordIds.has(m.id));
     let changed=(appMessages||[]).filter(message=>message.cloudRepairOrderId&&previous.has(message.cloudRepairOrderId)&&previous.get(message.cloudRepairOrderId)!==cloudRepairMessageState(message));
     let newPending=pendingCloudRepairMessages().filter(message=>!previous.has(message.cloudRepairOrderId));
-    rememberCloudRepairStates();if(changed.length||newPending.length)showUserMessagesBeforeCloudRepair(true);
+    rememberCloudRepairStates();if(changed.length||newPending.length||newPasswordRequest)showUserMessagesBeforeCloudRepair(true);
   }catch(error){console.error('No se pudieron actualizar las notificaciones de reparacion',error)}finally{cloudRepairRefreshBusy=false}
 }
 function stopCloudRepairPolling(){if(cloudRepairPollTimer)clearInterval(cloudRepairPollTimer);cloudRepairPollTimer=null;cloudRepairKnownStates.clear()}
