@@ -14,7 +14,7 @@ Aplicación de gestión de flota, stock, mantenimiento, gastos, personal y docum
 | `supabase/*.sql` | Cambios históricos de la base de datos |
 | `database-schema.sql` | Estructura de la aplicación recuperada de Supabase, sin datos |
 | `database-inventory.json` | Inventario y configuración de plataforma observada |
-| `password-notifications.mjs`, `wrangler.jsonc` | Servicio de avisos por correo en Cloudflare |
+| `password-notifications.mjs`, `wrangler-notifications.jsonc` | Servicio de avisos por correo en Cloudflare |
 | `repo-tests.mjs`, `package.json` | Pruebas locales sin correos reales |
 | `INSTALACION.md` | Configuración, publicación, recuperación y pendientes |
 

@@ -54,7 +54,9 @@ Configuración de Cloudflare:
 - Remitente del dominio: `avisos@pheloxapp.com`.
 - Secreto: `NOTIFY_TOKEN`, aleatorio de al menos 32 caracteres, guardado únicamente como secreto.
 
-`wrangler.jsonc` permite versionar el nombre, la entrada y el binding. La configuración declara explícitamente el único destinatario. Las credenciales de acceso a Cloudflare deben gestionarse fuera del repositorio.
+`wrangler-notifications.jsonc` permite versionar el nombre, la entrada y el binding. La configuración declara explícitamente el único destinatario. Las credenciales de acceso a Cloudflare deben gestionarse fuera del repositorio.
+
+Para desplegar únicamente el servicio de avisos con Wrangler instalado y autenticado, indicar expresamente `wrangler deploy --config wrangler-notifications.jsonc`. El nombre separado evita que una publicación automática del sitio use la configuración del correo por accidente.
 
 En Supabase, instalar Database Webhooks y crear:
 
