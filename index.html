@@ -6023,6 +6023,67 @@ canAccessLoc=function(locationName,companyName=company){
   return canAccessLocBeforeSharedVilla(locationName,companyName);
 };
 
+/* Las pantallas de Stock de Transportes muestran VILLA sin convertirla en frente operativo. */
+function stockLocationsForCurrentCompany(companyName=company){
+  let result=(companyLocations(companyName)||[]).slice();
+  if(canUseSharedVillaStock(companyName)&&!result.some(isSharedVillaStockLocation))result.push('VILLA');
+  return result.filter((locationName,index,list)=>locationName&&list.findIndex(other=>norm(other)===norm(locationName))===index);
+}
+function addSharedVillaStockOption(select,selectedLocation=''){
+  if(!select||!canUseSharedVillaStock(company))return;
+  if(![...select.options].some(option=>isSharedVillaStockLocation(option.value)))select.add(new Option('VILLA','VILLA'));
+  if(isSharedVillaStockLocation(selectedLocation))select.value='VILLA';
+}
+const stockScopeDetailBeforeSharedVilla=stockScopeDetail;
+stockScopeDetail=function(){
+  if(!canUseSharedVillaStock(company))return stockScopeDetailBeforeSharedVilla();
+  let selectedLocation=document.getElementById('locFilter')?.value||'',locationsList=stockLocationsForCurrentCompany();
+  if(selectedLocation)return `Navegando solo en: ${selectedLocation}`;
+  if(isCentralStockUser())return `Viendo todas las ubicaciones habilitadas: ${locationsList.join(' / ')}`;
+  return `Ubicaciones habilitadas: ${locationsList.join(' / ')||'Sin ubicaciones'}`;
+};
+const stockArticlesBeforeSharedVillaLocation=stockArticles;
+stockArticles=function(){
+  let result=stockArticlesBeforeSharedVillaLocation();
+  addSharedVillaStockOption(document.getElementById('locFilter'));
+  refreshStockScopeBanner();
+  return result;
+};
+const stockConsumeFormBeforeSharedVillaLocation=stockConsumeForm;
+stockConsumeForm=function(code=''){
+  let selected=stockItemByValue(code)||visibleStock()[0],result=stockConsumeFormBeforeSharedVillaLocation(code),locationSelect=document.getElementById('cLoc');
+  addSharedVillaStockOption(locationSelect,selected?.loc||'');
+  if(locationSelect&&isSharedVillaStockLocation(selected?.loc))renderStockConsumeOptions(selected?stock.indexOf(selected):'');
+  return result;
+};
+const stockEntryFormBeforeSharedVillaLocation=stockEntryForm;
+stockEntryForm=function(code=''){
+  let selected=stockItemByValue(code)||visibleStock()[0]||stock[0],result=stockEntryFormBeforeSharedVillaLocation(code);
+  addSharedVillaStockOption(document.getElementById('eLoc'),selected?.loc||'');
+  updateStockEntryAveragePreview();
+  return result;
+};
+const stockMoveFormBeforeSharedVillaLocation=stockMoveForm;
+stockMoveForm=function(code=''){
+  let selected=stockItemByValue(code)||visibleStock()[0],result=stockMoveFormBeforeSharedVillaLocation(code),fromSelect=document.getElementById('mvFrom');
+  addSharedVillaStockOption(fromSelect,selected?.loc||'');
+  addSharedVillaStockOption(document.getElementById('mvLoc'));
+  if(fromSelect&&isSharedVillaStockLocation(selected?.loc))renderMoveItemOptions(selected?stock.indexOf(selected):'');
+  return result;
+};
+const newStockItemFormBeforeSharedVillaLocation=newStockItemForm;
+newStockItemForm=function(){
+  let result=newStockItemFormBeforeSharedVillaLocation();
+  addSharedVillaStockOption(document.getElementById('nLoc'));
+  return result;
+};
+const editStockItemFormBeforeSharedVillaLocation=editStockItemForm;
+editStockItemForm=function(code){
+  let item=stockItemByValue(code),result=editStockItemFormBeforeSharedVillaLocation(code);
+  addSharedVillaStockOption(document.getElementById('edLoc'),item?.loc||'');
+  return result;
+};
+
 /* Elimina una sola vez registros ficticios heredados del demo en este dispositivo. */
 function clearLegacyDemoRecords(){
   if(localStorage.getItem('phelox_cloud_demo_cleanup_20260730')==='done')return;
