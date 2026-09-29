@@ -6023,6 +6023,25 @@ canAccessLoc=function(locationName,companyName=company){
   return canAccessLocBeforeSharedVilla(locationName,companyName);
 };
 
+/* En Servicio / reparacion, el mecanico de Transportes puede elegir el deposito compartido VILLA. */
+function mechanicMaintenanceStockLocations(){
+  let result=(companyLocations()||[]).slice();
+  if(isMecanico()&&canUseSharedVillaStock(company)&&!result.some(isSharedVillaStockLocation))result.push('VILLA');
+  return result.filter((locationName,index,list)=>locationName&&list.findIndex(other=>norm(other)===norm(locationName))===index);
+}
+const partsLocationOptionsBeforeSharedVillaMechanic=partsLocationOptions;
+partsLocationOptions=function(selected=''){
+  if(!isMecanico()||!canUseSharedVillaStock(company))return partsLocationOptionsBeforeSharedVillaMechanic(selected);
+  let result=mechanicMaintenanceStockLocations();
+  return optionsFrom(result,selected||result[0]||'');
+};
+const oilLocationOptionsBeforeSharedVillaMechanic=oilLocationOptions;
+oilLocationOptions=function(selected=''){
+  if(!isMecanico()||!canUseSharedVillaStock(company))return oilLocationOptionsBeforeSharedVillaMechanic(selected);
+  let result=mechanicMaintenanceStockLocations();
+  return optionsFrom(result,selected||result[0]||'');
+};
+
 /* Las pantallas de Stock de Transportes muestran VILLA sin convertirla en frente operativo. */
 function stockLocationsForCurrentCompany(companyName=company){
   let result=(companyLocations(companyName)||[]).slice();
