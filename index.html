@@ -6002,6 +6002,27 @@ loadCloudStock=async function(){
   }finally{cloudStockLoading=false}
 };
 
+/* VILLA: deposito fisico compartido por PHELOX y Transportes El Avion. */
+function isSharedVillaStockLocation(locationName){return norm(locationName)==='villa'}
+function isTransportesCompany(companyName){return norm(companyName).includes('transportes el avion')}
+function canUseSharedVillaStock(companyName=company){
+  if(!isTransportesCompany(companyName)||!currentUser)return false;
+  if(currentUser?.perms?.all)return true;
+  let transportLocations=currentUser?.locations?.['Transportes El Avion']||[];
+  return transportLocations.some(locationName=>norm(locationName)==='taller villa rosario');
+}
+const partStockLocationsBeforeSharedVilla=partStockLocations;
+partStockLocations=function(){
+  let result=partStockLocationsBeforeSharedVilla().slice();
+  if(canUseSharedVillaStock(company)&&!result.some(isSharedVillaStockLocation))result.push('VILLA');
+  return result;
+};
+const canAccessLocBeforeSharedVilla=canAccessLoc;
+canAccessLoc=function(locationName,companyName=company){
+  if(isSharedVillaStockLocation(locationName)&&canUseSharedVillaStock(companyName))return true;
+  return canAccessLocBeforeSharedVilla(locationName,companyName);
+};
+
 /* Elimina una sola vez registros ficticios heredados del demo en este dispositivo. */
 function clearLegacyDemoRecords(){
   if(localStorage.getItem('phelox_cloud_demo_cleanup_20260730')==='done')return;
