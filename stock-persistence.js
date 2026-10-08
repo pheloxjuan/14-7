@@ -206,3 +206,10 @@ loginWithSupabase=async function(){
 };
 const logoutBeforeStockPersistence=logout;
 logout=async function(){clearInterval(cloudMovementTimer);cloudMovementTimer=null;stockMovementRequests=[];cloudMovementCatalog={companies:[],locations:[]};return logoutBeforeStockPersistence();};
+const openStockMovementRequestBeforePersistenceFix=openStockMovementRequest;
+openStockMovementRequest=function(id){
+  if(!supabaseSessionActive)return openStockMovementRequestBeforePersistenceFix(id);
+  const r=stockMovementRequests.find(x=>x.id===id);if(!r)return;
+  const esc=stockCloudEscape;
+  modalRoot.innerHTML=`<div class="modalBackdrop"><div class="modalBox"><div class="modalTitle" style="color:var(--text)">${esc(r.id)} · ${esc(r.status)}</div><p><b>${esc(r.code)} · ${esc(r.part)}</b></p><p>${esc(r.qty)} desde ${esc(r.fromLoc)} hacia ${esc(r.toLoc)}</p><p>${esc(r.reason)}</p>${r.responseNote?`<div class="notice">Respuesta: ${esc(r.responseNote)}</div>`:''}<div class="modalActions"><button class="primary" onclick="closeModal()">Cerrar</button></div></div></div>`;
+};
