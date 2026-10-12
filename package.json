@@ -4,7 +4,7 @@
   "private": true,
   "description": "PHELOX LTDA / Transportes El Avión",
   "scripts": {
-    "test": "node repo-tests.mjs"
+    "test": "node repo-tests.mjs && node confirmed-stock-tests.mjs"
   },
   "engines": {
     "node": ">=22"

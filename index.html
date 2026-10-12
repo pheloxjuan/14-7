@@ -6513,11 +6513,11 @@ superAdminBackupCenter=function(){let result=backupCenterBeforeDocumentLibrary()
   });
   if ('serviceWorker' in navigator) window.addEventListener('load', async () => {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v17');
+      const registration = await navigator.serviceWorker.register('/sw.js?v=cloud-v19');
       await registration.update();
     } catch (error) {
       console.warn('No se pudo actualizar la aplicación instalada', error);
     }
   });
 })();
-</script><script src="/stock-persistence.js?v=20261008"></script></body></html>
+</script><script src="/stock-persistence.js?v=20261012"></script><script src="/confirmed-stock-actions.js?v=20261012"></script></body></html>
