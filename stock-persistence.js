@@ -1,4 +1,4 @@
-/* PHELOX stock persistence candidate. Load after the existing application. */
+/* PHELOX server-confirmed stock persistence. Load after the existing application. */
 let cloudMovementCatalog={companies:[],locations:[]},cloudMovementTimer=null,cloudMovementLoading=false;
 const cloudMovementStatus={pendiente:'Pendiente',aprobado:'Aprobada',rechazado:'Rechazada',enviado:'Despachada',recibido:'Recibida',preparando:'Preparando'};
 function stockCloudEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -166,12 +166,17 @@ reviewStockMovementRequest=function(id,status){
   return confirmStockSave('¿Aprobar esta solicitud? El stock se moverá cuando el solicitante confirme el despacho.',()=>confirmStockMovementReview(id,status));
 };
 const confirmStockMovementReviewBeforePersistenceFix=confirmStockMovementReview;
+const cloudMovementDecisionsBusy=new Set();
 confirmStockMovementReview=async function(id,status){
   if(!supabaseSessionActive)return confirmStockMovementReviewBeforePersistenceFix(id,status);
+  if(cloudMovementDecisionsBusy.has(id))return;
+  cloudMovementDecisionsBusy.add(id);
+  let committed=false;
   try{
     await stockCloudRpc('decide_stock_request',{p_id:id,p_status:status==='Aprobada'?'aprobado':'rechazado',p_note:document.getElementById('smrResponse')?.value||status});
-    closeModal();await refreshCloudMovementScreen();success('Respuesta guardada en Supabase.');
-  }catch(error){alert('No se confirmó la respuesta: '+error.message);}
+    committed=true;closeModal();await loadCloudMovementRequests();stockMovementRequestsView();success('Respuesta guardada en Supabase.');
+  }catch(error){alert((committed?'La respuesta quedó guardada. No se pudo actualizar la pantalla: ':'No se confirmó la respuesta: ')+error.message);}
+  finally{cloudMovementDecisionsBusy.delete(id);}
 };
 const dispatchStockMovementRequestBeforePersistenceFix=dispatchStockMovementRequest;
 dispatchStockMovementRequest=function(id){
@@ -183,7 +188,7 @@ dispatchStockMovementRequest=function(id){
     try{
       await cloudStockQueue;
       await stockCloudRpc('decide_stock_request',{p_id:id,p_status:'enviado',p_note:'Despacho confirmado'});
-      try{await loadCloudStock();await refreshCloudMovementScreen();success('Despacho guardado y stock actualizado.');}
+      try{await loadCloudStock();await loadCloudMovementRequests();stockMovementRequestsView();success('Despacho guardado y stock actualizado.');}
       catch(error){alert('El despacho quedó guardado. No se pudo actualizar la pantalla: '+error.message);}
     }catch(error){alert('No se confirmó el despacho: '+error.message);}
     finally{busy=false;}
