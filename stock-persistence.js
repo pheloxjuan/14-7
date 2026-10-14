@@ -1,5 +1,6 @@
 /* PHELOX server-confirmed stock persistence. Load after the existing application. */
-let cloudMovementCatalog={companies:[],locations:[]},cloudMovementTimer=null,cloudMovementLoading=false;
+let cloudMovementCatalog={companies:[],locations:[]},cloudMovementTimer=null,cloudMovementLoading=false,
+  cloudMovementRealtimeChannel=null,cloudMovementRealtimeRefreshTimer=null;
 const cloudMovementStatus={pendiente:'Pendiente',aprobado:'Aprobada',rechazado:'Rechazada',enviado:'Despachada',recibido:'Recibida',preparando:'Preparando'};
 function stockCloudEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 async function stockCloudRpc(name,args){
@@ -194,6 +195,34 @@ dispatchStockMovementRequest=function(id){
     finally{busy=false;}
   });
 };
+async function refreshCloudStockRealtime(){
+  if(!supabaseSessionActive)return;
+  try{
+    await loadCloudStock();
+    await loadCloudMovementRequests();
+    if(document.getElementById('stockViewBox')?.dataset.cloudMovements==='true'&&
+      document.querySelector('#stockViewBox h2')?.textContent?.startsWith('Solicitudes de movimiento'))stockMovementRequestsView();
+  }catch(error){console.warn('No se pudo actualizar el stock en tiempo real',error);}
+}
+function scheduleCloudStockRealtimeRefresh(){
+  clearTimeout(cloudMovementRealtimeRefreshTimer);
+  cloudMovementRealtimeRefreshTimer=setTimeout(refreshCloudStockRealtime,250);
+}
+async function stopCloudStockRealtime(){
+  clearTimeout(cloudMovementRealtimeRefreshTimer);cloudMovementRealtimeRefreshTimer=null;
+  let channel=cloudMovementRealtimeChannel;cloudMovementRealtimeChannel=null;
+  if(channel&&supabaseClient)try{await supabaseClient.removeChannel(channel);}catch(error){console.warn('No se pudo cerrar Realtime de stock',error);}
+}
+async function startCloudStockRealtime(){
+  await stopCloudStockRealtime();
+  if(!supabaseSessionActive||!currentUser?.supabaseId)return;
+  let client=await ensureSupabaseClient();
+  cloudMovementRealtimeChannel=client.channel(`stock-domain-${currentUser.supabaseId}`)
+    .on('postgres_changes',{event:'*',schema:'public',table:'stock_balances'},scheduleCloudStockRealtimeRefresh)
+    .on('postgres_changes',{event:'*',schema:'public',table:'stock_movements'},scheduleCloudStockRealtimeRefresh)
+    .on('postgres_changes',{event:'*',schema:'public',table:'stock_movement_requests'},scheduleCloudStockRealtimeRefresh)
+    .subscribe(status=>{window.cloudStockRealtimeStatus=status;});
+}
 const loginWithSupabaseBeforeStockPersistence=loginWithSupabase;
 loginWithSupabase=async function(){
   await loginWithSupabaseBeforeStockPersistence();
@@ -201,16 +230,17 @@ loginWithSupabase=async function(){
   stockMovementRequests=[];
   try{await loadCloudMovementRequests();}
   catch(error){alert('No se pudieron cargar las solicitudes de movimiento: '+error.message);}
+  await startCloudStockRealtime();
   clearInterval(cloudMovementTimer);
   cloudMovementTimer=setInterval(async()=>{
     if(!supabaseSessionActive||document.hidden)return;
     try{await loadCloudMovementRequests();
       if(document.getElementById('stockViewBox')?.dataset.cloudMovements==='true'&&document.querySelector('#stockViewBox h2')?.textContent?.startsWith('Solicitudes de movimiento'))stockMovementRequestsView();
     }catch(error){console.warn('No se pudo consultar solicitudes de movimiento',error);}
-  },15000);
+  },60000);
 };
 const logoutBeforeStockPersistence=logout;
-logout=async function(){clearInterval(cloudMovementTimer);cloudMovementTimer=null;stockMovementRequests=[];cloudMovementCatalog={companies:[],locations:[]};return logoutBeforeStockPersistence();};
+logout=async function(){clearInterval(cloudMovementTimer);cloudMovementTimer=null;await stopCloudStockRealtime();stockMovementRequests=[];cloudMovementCatalog={companies:[],locations:[]};return logoutBeforeStockPersistence();};
 const openStockMovementRequestBeforePersistenceFix=openStockMovementRequest;
 openStockMovementRequest=function(id){
   if(!supabaseSessionActive)return openStockMovementRequestBeforePersistenceFix(id);
