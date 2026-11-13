@@ -6320,6 +6320,7 @@ async function loadCloudRepairMessages(client){
   let structure=await fetchSupabaseStructure(client),companyById=new Map(structure.companyRows.map(row=>[row.id,localCompanySystemKey(row)])),locationById=new Map(structure.locationRows.map(row=>[row.id,row.name])),vehicleById=new Map([...pheloxFleet,...avionFleet].filter(vehicle=>vehicle.supabaseId).map(vehicle=>[vehicle.supabaseId,vehicle]));
   appMessages=(appMessages||[]).filter(message=>!message.cloudRepairOrderId);
   (result.data||[]).forEach(order=>{
+    if(parseCloudRepairMeta(order.notes).pheloxHistoryVersion)return;
     let assigned=order.assigned_to===uid,requested=order.requested_by===uid;if(!assigned&&!requested)return;
     let meta=parseCloudRepairMeta(order.notes),vehicle=vehicleById.get(order.vehicle_id),status=cloudRepairDisplayStatus(order),companyName=companyById.get(order.company_id)||'',locationName=locationById.get(order.location_id)||'',requesterName=meta.requesterName||'Otro usuario',recipientName=meta.recipientName||'Usuario asignado',response=meta.response||{},dateValue=order.updated_at||order.created_at,dateText=dateValue?new Date(dateValue).toLocaleString('es-UY'):now(),priority=String(order.priority||'normal');
     let title=assigned?(order.title||'Solicitud de reparacion'):(status==='Pendiente'?`Solicitud enviada a ${recipientName}`:`Solicitud de reparacion ${status.toLowerCase()}`);
@@ -6521,4 +6522,137 @@ superAdminBackupCenter=function(){let result=backupCenterBeforeDocumentLibrary()
     }
   });
 })();
-</script><script src="/stock-persistence.js?v=20261014"></script><script src="/confirmed-stock-actions.js?v=20261012"></script></body></html>
+</script><script src="/stock-persistence.js?v=20261014"></script><script src="/confirmed-stock-actions.js?v=20261012"></script><script id="shared-service-history">
+
+/* Shared service history. This only persists records; it never consumes stock. */
+let serviceCloudBusy=null,serviceCloudTimer=null,serviceCloudLastRead=0,serviceCloudMerging=false;
+const serviceCloudKnown=new Map(),serviceCloudOwners=new Map();
+function serviceCloudId(record,kind){
+  const match=String(record.id||'').match(kind==='history'?/^H(\d+)$/:/^MAN-(\d+)$/);
+  if(!match)throw new Error('Identificador de mantenimiento no reconocido');
+  const hex=BigInt(match[1]).toString(16).padStart(12,'0');
+  if(hex.length!==12)throw new Error('Identificador fuera de rango');
+  return '7068656c-6f78-'+(kind==='history'?'4000':'4001')+'-8000-'+hex;
+}
+function serviceCloudOwns(record,kind){
+  return norm(kind==='history'?record.user:record.userName)===norm(activeUserName())||
+    (kind==='job'&&record.userId===currentUser?.id);
+}
+function serviceCloudNotice(text,failed=false){
+  let el=document.getElementById('serviceCloudStatus');
+  if(!el){el=document.createElement('div');el.id='serviceCloudStatus';el.style.cssText='position:fixed;bottom:12px;left:12px;z-index:9500;max-width:90vw;padding:10px 14px;border-radius:9px;background:#e5f5ee;color:#174b38;font-size:13px;box-shadow:0 2px 12px #0002';document.body.appendChild(el)}
+  el.textContent=text;el.style.background=failed?'#fff0c7':'#e5f5ee';el.hidden=!currentUser;
+}
+function serviceCloudSchedule(){
+  if(serviceCloudMerging||!supabaseSessionActive||!currentUser?.supabaseId)return;
+  clearTimeout(serviceCloudTimer);
+  serviceCloudTimer=setTimeout(()=>serviceCloudSync().catch(()=>{}),650);
+}
+async function serviceCloudPayload(record,kind,structure){
+  const matches=[...pheloxFleet,...avionFleet].filter(v=>String(v.plate||'').replace(/\s/g,'').toUpperCase()===String(record.plate||'').replace(/\s/g,'').toUpperCase()&&(!record.company||norm(v.company)===norm(record.company)));
+  if(matches.length!==1||!matches[0].supabaseId)throw new Error('No se pudo identificar el vehiculo '+record.plate);
+  const vehicle=matches[0],companyName=vehicle.company||vehicleCompanyName(vehicle);
+  const c=structure.companyRows.find(c=>norm(localCompanySystemKey(c))===norm(companyName));
+  if(!c)throw new Error('Empresa no disponible para '+record.plate);
+  const loc=structure.locationRows.find(l=>l.company_id===c.id&&norm(l.name)===norm(record.location))||
+    structure.locationRows.find(l=>l.company_id===c.id&&norm(l.name)===norm(record.partsLocation));
+  if(!loc)throw new Error('Ubicacion no disponible para '+record.plate);
+  const id=serviceCloudId(record,kind),owner=serviceCloudOwners.get(id)||currentUser.supabaseId;
+  return {id,company_id:c.id,location_id:loc.id,vehicle_id:vehicle.supabaseId,
+    status:kind==='history'?'terminado':'en_proceso',
+    title:'[Historial] '+(kind==='history'?'Servicio finalizado':'Mantenimiento en curso')+' - '+record.plate,
+    description:record.job||record.notes||'Mantenimiento',kilometers:Number(record.km)||0,
+    requested_by:owner,assigned_to:owner,
+    notes:JSON.stringify({pheloxHistoryVersion:1,kind,record})};
+}
+function serviceCloudMerge(rows){
+  for(const row of rows){
+    let meta;try{meta=JSON.parse(row.notes||'{}')}catch{continue}
+    if(meta.pheloxHistoryVersion!==1||!meta.record?.id||!['history','job','archived'].includes(meta.kind))continue;
+    const record=meta.record,key=row.id;
+    serviceCloudOwners.set(key,row.requested_by);
+    if(meta.kind==='archived'){maintenanceJobs=maintenanceJobs.filter(j=>j.id!==record.id);continue}
+    const target=meta.kind==='history'?hist:maintenanceJobs,index=target.findIndex(r=>r.id===record.id);
+    const local=index>=0?target[index]:null,known=serviceCloudKnown.get(key);
+    if(local&&meta.kind==='job'&&known&&JSON.stringify(local)!==known)continue;
+    if(index<0)target.push(record);else target[index]=record;
+    serviceCloudKnown.set(key,JSON.stringify(record));
+  }
+  const completedJobs=new Set(hist.map(h=>h.completedJobId).filter(Boolean));
+  maintenanceJobs=maintenanceJobs.filter(j=>!completedJobs.has(j.id));
+  hist.sort((a,b)=>Number(String(b.id).replace(/\D/g,''))-Number(String(a.id).replace(/\D/g,'')));
+}
+async function serviceCloudSync(){
+  if(!supabaseSessionActive||!currentUser?.supabaseId)return;
+  if(serviceCloudBusy)return serviceCloudBusy;
+  const uid=currentUser.supabaseId;
+  serviceCloudBusy=(async()=>{
+    serviceCloudNotice('Servicios: sincronizando.');
+    try{
+      const client=await ensureSupabaseClient(),structure=await fetchSupabaseStructure(client);
+      const records=[...hist.map(record=>({record,kind:'history'})),...maintenanceJobs.map(record=>({record,kind:'job'}))]
+        .filter(({record,kind})=>serviceCloudOwns(record,kind));
+      let serviceCloudUploadError=null;
+      for(const {record,kind} of records){
+        try{
+        if(currentUser?.supabaseId!==uid)return;
+        const id=serviceCloudId(record,kind),serialized=JSON.stringify(record);
+        if(serviceCloudKnown.get(id)===serialized)continue;
+        const payload=await serviceCloudPayload(record,kind,structure);
+        const result=await client.from('maintenance_orders').upsert(payload,{onConflict:'id',ignoreDuplicates:kind==='history'});
+        if(result.error)throw result.error;
+        serviceCloudKnown.set(id,serialized);serviceCloudOwners.set(id,payload.requested_by);
+        if(kind==='history'&&record.completedJobId)await serviceCloudArchiveJob({id:record.completedJobId});
+        }catch(error){serviceCloudUploadError=error}
+      }
+      let rows=[];
+      for(let offset=0;;offset+=500){
+        const result=await client.from('maintenance_orders').select('id,requested_by,notes')
+          .like('notes','%pheloxHistoryVersion%').order('id').range(offset,offset+499);
+        if(result.error)throw result.error;
+        rows.push(...(result.data||[]));if((result.data||[]).length<500)break;
+      }
+      if(currentUser?.supabaseId!==uid)return;
+      serviceCloudMerging=true;
+      try{serviceCloudMerge(rows);localStorage.setItem(maintenanceJobsKey,JSON.stringify(maintenanceJobs));saveData()}finally{serviceCloudMerging=false}
+      serviceCloudLastRead=Date.now();
+      if(serviceCloudUploadError)throw serviceCloudUploadError;
+      serviceCloudNotice('Servicios: guardados en la nube');
+    }catch(error){
+      console.error('No se pudo sincronizar el historial de servicios',error);
+      serviceCloudNotice('Servicios pendientes de sincronizar. Conservados en este equipo; se reintentara con conexion.',true);
+      throw error;
+    }
+  })();
+  try{return await serviceCloudBusy}finally{serviceCloudBusy=null}
+}
+async function serviceCloudArchiveJob(job){
+  const client=await ensureSupabaseClient(),id=serviceCloudId(job,'job');
+  const result=await client.from('maintenance_orders').update({status:'terminado',
+    notes:JSON.stringify({pheloxHistoryVersion:1,kind:'archived',record:job})}).eq('id',id);
+  if(result.error)throw result.error;
+}
+const saveDataBeforeServiceCloud=saveData;
+saveData=function(){const result=saveDataBeforeServiceCloud();serviceCloudSchedule();return result};
+const loginBeforeServiceCloud=loginWithSupabase;
+loginWithSupabase=async function(){const result=await loginBeforeServiceCloud();if(supabaseSessionActive)await serviceCloudSync().catch(()=>{});return result};
+const showVehicleBeforeServiceCloud=showVehicle;
+showVehicle=async function(plate,mode){if(supabaseSessionActive&&Date.now()-serviceCloudLastRead>15000)await serviceCloudSync().catch(()=>{});return showVehicleBeforeServiceCloud(plate,mode)};
+const jobsViewBeforeServiceCloud=maintenanceJobsView;
+maintenanceJobsView=async function(){if(supabaseSessionActive&&Date.now()-serviceCloudLastRead>15000)await serviceCloudSync().catch(()=>{});return jobsViewBeforeServiceCloud()};
+const saveMaintenanceBeforeServiceCloud=saveMaintenance;
+saveMaintenance=function(){
+  const job=maintenanceJobs.find(j=>j.id===currentMaintenanceJobId),before=new Set(hist.map(h=>h.id));
+  const result=saveMaintenanceBeforeServiceCloud();
+  const record=hist.find(h=>!before.has(h.id));
+  if(job&&record){record.completedJobId=job.id;saveData()}
+  serviceCloudSchedule();return result;
+};
+const logoutBeforeServiceCloud=logout;
+logout=async function(){clearTimeout(serviceCloudTimer);serviceCloudKnown.clear();serviceCloudOwners.clear();serviceCloudLastRead=0;const badge=document.getElementById('serviceCloudStatus');if(badge)badge.hidden=true;return logoutBeforeServiceCloud()};
+window.addEventListener('online',serviceCloudSchedule);
+window.addEventListener('focus',()=>{if(Date.now()-serviceCloudLastRead>15000)serviceCloudSchedule()});
+setInterval(()=>{if(supabaseSessionActive&&!document.hidden)serviceCloudSchedule()},60000);
+if(supabaseSessionActive&&currentUser?.supabaseId)serviceCloudSchedule();
+
+</script></body></html>
